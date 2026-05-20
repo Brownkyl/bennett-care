@@ -42,7 +42,7 @@ def cli() -> None:
               help="Lookback days for charts in sections 2, 4, 6, 7.")
 @click.option(
     "--rolling-lookback",
-    default=180,
+    default=90,
     type=int,
     show_default=True,
     help="Lookback days for the 14-day rolling-average chart (section 3).",

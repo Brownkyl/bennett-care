@@ -52,7 +52,7 @@ def render_all_charts(
     *,
     output_dir: str | Path,
     lookback_days: int = 90,
-    rolling_lookback_days: int = 180,
+    rolling_lookback_days: int = 90,
 ) -> ChartPaths:
     """Render all Phase 1 charts into ``output_dir`` and return their paths."""
     out = Path(output_dir)
