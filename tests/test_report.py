@@ -13,7 +13,7 @@ from docx import Document
 
 from bennett_care.ingest import Dose, MedChange, SeizureLog
 from bennett_care.report import ReportInputs, build_report
-from bennett_care.stats import analyze_recent_changes
+from bennett_care.stats import analyze_recent_changes, current_baseline
 from bennett_care.visualize import render_all_charts
 
 
@@ -80,6 +80,7 @@ def built_report(tmp_path: Path) -> Path:
         log=log,
         chart_paths=charts,
         analyses=analyses,
+        baseline=current_baseline(log),
         visit_date=date(2026, 8, 4),
         lookback_days=90,
     )
@@ -117,8 +118,9 @@ def test_report_section_headings_present(built_report: Path) -> None:
         "5. Pre / post comparison",
         "6. Seizure type distribution",
         "7. Flag summary",
-        "8. Open clinical questions",
-        "9. Appendix",
+        "8. Current baseline snapshot",
+        "9. Open clinical questions",
+        "10. Appendix",
     ]:
         assert heading in body_text, f"Missing heading: {heading}"
 
@@ -172,9 +174,12 @@ def test_report_current_regimen_renders(built_report: Path) -> None:
 
 def test_report_prepost_table_has_three_window_rows_per_change(built_report: Path) -> None:
     doc = Document(str(built_report))
-    # Find tables whose first row starts with "Window".
+    # Pre/post tables are identified by the "BEFORE (95% CI)" column header,
+    # which distinguishes them from Section 8's baseline-snapshot table.
     window_tables = [
-        t for t in doc.tables if t.rows[0].cells[0].text.strip() == "Window"
+        t for t in doc.tables
+        if t.rows[0].cells[0].text.strip() == "Window"
+        and "BEFORE" in t.rows[0].cells[1].text
     ]
     assert len(window_tables) == 2  # two recent changes
     for t in window_tables:
@@ -235,6 +240,26 @@ def test_report_section_1_shows_lookback_window_not_monitored_days(built_report:
     )
     assert "90 days" in value_for_charts
     assert "–" in value_for_charts or "-" in value_for_charts
+
+
+def test_report_baseline_snapshot_table_present(built_report: Path) -> None:
+    """Section 8's trailing-window table: header includes Window + 95% CI + Rescue events."""
+    doc = Document(str(built_report))
+    baseline_tables = [
+        t for t in doc.tables
+        if t.rows[0].cells[0].text.strip() == "Window"
+        and "95% CI" in t.rows[0].cells[1].text
+        and "Rescue events" in t.rows[0].cells[3].text
+    ]
+    assert len(baseline_tables) == 1
+    # Header + 3 windows (14/28/56)
+    assert len(baseline_tables[0].rows) == 4
+
+
+def test_report_baseline_days_since_last_change_line(built_report: Path) -> None:
+    doc = Document(str(built_report))
+    body_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Days since last regimen change" in body_text
 
 
 def test_report_no_causal_language(built_report: Path) -> None:

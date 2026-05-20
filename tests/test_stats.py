@@ -9,9 +9,11 @@ import pytest
 from bennett_care.ingest import Dose, MedChange, SeizureLog
 from bennett_care.stats import (
     DEFAULT_WINDOWS,
+    BaselineSnapshot,
     MeanCI,
     PrePostAnalysis,
     analyze_recent_changes,
+    current_baseline,
     hedges_g,
     mean_with_bootstrap_ci,
     notable_days,
@@ -72,7 +74,7 @@ def _make_log(
 
     return SeizureLog(
         daily=daily,
-        clusters=pd.DataFrame(),
+        clusters=pd.DataFrame({"Date": [], "flag_tokens": []}),
         med_changes=changes,
         mismatches=pd.DataFrame(),
         excluded_dates=pd.DatetimeIndex([]),
@@ -300,6 +302,112 @@ def test_notable_days_uses_strictly_trailing_window() -> None:
     result = notable_days(daily, window=28)
     # Trailing mean for day 40 = mean of days 12..39 = 10 (since the spike isn't included).
     assert result.loc[dates[40], "trailing_mean"] == 10.0
+
+
+# --------------------------------------------------------------------------- #
+# current_baseline                                                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_current_baseline_returns_all_default_windows() -> None:
+    log = _make_log()
+    snap = current_baseline(log)
+    assert isinstance(snap, BaselineSnapshot)
+    assert set(snap.windows) == set(DEFAULT_WINDOWS)
+
+
+def test_current_baseline_anchors_at_latest_date() -> None:
+    log = _make_log(days=60, change_day=30)
+    snap = current_baseline(log)
+    assert snap.latest_date == log.daily.index[-1]
+    # 14-day window covers the final 14 monitored days exactly
+    assert snap.windows[14].mean_ci.n == 14
+
+
+def test_current_baseline_days_since_last_real_change() -> None:
+    log = _make_log(days=60, change_day=40)  # second real change at index 40 of 60
+    snap = current_baseline(log)
+    # latest = index[59], last real change = index[40] → 19 days
+    assert snap.last_real_change_date == log.daily.index[40]
+    assert snap.days_since_last_real_change == 19
+
+
+def test_current_baseline_no_real_changes() -> None:
+    log = SeizureLog(
+        daily=pd.DataFrame(
+            {"count": [1, 2, 3], "daily_total_recorded": [1, 2, 3], "mismatch": [False] * 3},
+            index=pd.date_range("2026-01-01", periods=3, freq="D"),
+        ),
+        clusters=pd.DataFrame({"Date": [], "flag_tokens": []}),
+        med_changes=[],
+        mismatches=pd.DataFrame(),
+        excluded_dates=pd.DatetimeIndex([]),
+    )
+    snap = current_baseline(log)
+    assert snap.last_real_change_date is None
+    assert snap.days_since_last_real_change is None
+
+
+def test_current_baseline_skips_rescue_note_when_finding_last_change() -> None:
+    """A rescue-note entry (empty regimen) after the last real change must not be picked
+    as ``last_real_change_date``."""
+    log = _make_log(days=60, change_day=40)
+    log.med_changes.append(
+        MedChange(
+            date=log.daily.index[55],
+            raw="Gave rescue meds at 9pm",
+            regimen={},
+        )
+    )
+    log.med_changes.sort(key=lambda c: c.date)
+    snap = current_baseline(log)
+    assert snap.last_real_change_date == log.daily.index[40]
+
+
+def test_current_baseline_rescue_event_count_uses_window() -> None:
+    """Rescue events outside the trailing window must not be counted."""
+    dates = pd.date_range("2026-01-01", periods=30, freq="D")
+    daily = pd.DataFrame(
+        {"count": [1] * 30, "daily_total_recorded": [1] * 30, "mismatch": [False] * 30},
+        index=dates,
+    )
+    daily.index.name = "Date"
+    # Rescue flags: one OLD (outside the trailing 14-day window) and two RECENT (inside).
+    clusters = pd.DataFrame(
+        {
+            "Date": [dates[0], dates[20], dates[28]],
+            "flag_tokens": [
+                frozenset({"rescue_meds_given"}),
+                frozenset({"rescue_meds_given"}),
+                frozenset({"rescue_meds_given"}),
+            ],
+        }
+    )
+    log = SeizureLog(
+        daily=daily,
+        clusters=clusters,
+        med_changes=[
+            MedChange(date=dates[0], raw="Clobazam 1mL am",
+                      regimen={"Clobazam": (Dose(1.0, "am"),)}),
+        ],
+        mismatches=pd.DataFrame(),
+        excluded_dates=pd.DatetimeIndex([]),
+    )
+    snap = current_baseline(log)
+    # latest = dates[29].
+    # 14-day window starts at dates[16] → catches 20 and 28 only (2 events).
+    assert snap.windows[14].rescue_events == 2
+    # 28-day window starts at dates[2] → still excludes the dates[0] event.
+    assert snap.windows[28].rescue_events == 2
+    # 56-day window covers everything (only 30 days of data).
+    assert snap.windows[56].rescue_events == 3
+
+
+def test_current_baseline_mean_ci_brackets_mean() -> None:
+    log = _make_log(days=180)
+    snap = current_baseline(log)
+    for w in snap.windows.values():
+        assert w.mean_ci.low <= w.mean_ci.mean <= w.mean_ci.high
 
 
 # --------------------------------------------------------------------------- #

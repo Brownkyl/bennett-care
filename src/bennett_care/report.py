@@ -10,8 +10,9 @@ Section layout (per CLAUDE.md):
      column headers, magnitude labels on Hedges' g, explicit no-causation note)
   6. Seizure type distribution
   7. Flags summary (rescue, ended-in-tonic, school)
-  8. Open clinical questions (empty template)
-  9. Appendix: raw daily counts for last 30 days
+  8. Current baseline snapshot (trailing 14/28/56-day mean + rescue burden)
+  9. Open clinical questions (empty template)
+ 10. Appendix: raw daily counts for last 30 days
 
 All output is factual; no causal language. The user composes narrative
 from this document during the clinic visit.
@@ -36,6 +37,7 @@ from docx.table import _Cell
 
 from .ingest import SeizureLog, count_flag
 from .stats import (
+    BaselineSnapshot,
     PrePostAnalysis,
     format_regimen,
     format_regimen_delta,
@@ -66,6 +68,7 @@ class ReportInputs:
     log: SeizureLog
     chart_paths: ChartPaths
     analyses: list[PrePostAnalysis]
+    baseline: BaselineSnapshot
     visit_date: date
     lookback_days: int = 90
 
@@ -93,8 +96,9 @@ def build_report(inputs: ReportInputs, *, output_path: str | Path) -> Path:
                        caption="Distribution among clusters that have a Seizure Type recorded "
                                "(coverage shown in chart).")
     _add_section_7_flags(doc, inputs)
-    _add_section_8_questions(doc)
-    _add_section_9_appendix(doc, inputs)
+    _add_section_8_baseline(doc, inputs)
+    _add_section_9_questions(doc)
+    _add_section_10_appendix(doc, inputs)
 
     doc.save(output_path)
     return output_path
@@ -561,12 +565,68 @@ def _add_section_7_flags(doc: DocxDocument, inputs: ReportInputs) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Section 8: Open questions                                                   #
+# Section 8: Current baseline snapshot                                        #
 # --------------------------------------------------------------------------- #
 
 
-def _add_section_8_questions(doc: DocxDocument) -> None:
-    _add_section_heading(doc, "8. Open clinical questions")
+def _add_section_8_baseline(doc: DocxDocument, inputs: ReportInputs) -> None:
+    _add_section_heading(doc, "8. Current baseline snapshot")
+    snapshot = inputs.baseline
+
+    intro = doc.add_paragraph(
+        "Where the baseline sits right now, ending at the latest date in the log. "
+        "Three trailing windows (14, 28, 56 days) are shown so very recent and "
+        "longer-term views are visible side by side. Rescue events are distinct dates "
+        "with rescue evidence (cluster flag or Meds-column note)."
+    )
+    intro.paragraph_format.space_after = Pt(6)
+
+    since_para = doc.add_paragraph()
+    if snapshot.last_real_change_date is None:
+        line = "No regimen changes are recorded in the log."
+    else:
+        change_str = snapshot.last_real_change_date.strftime("%B %-d, %Y")
+        days = snapshot.days_since_last_real_change
+        line = (
+            f"Days since last regimen change: {days} "
+            f"(last change on {change_str})."
+        )
+    s_run = since_para.add_run(line)
+    s_run.bold = True
+
+    headers = [
+        "Window",
+        "Avg daily seizures (95% CI)",
+        "Days observed",
+        "Rescue events",
+        "≈ every",
+    ]
+    table = doc.add_table(rows=1 + len(snapshot.windows), cols=len(headers))
+    for j, h in enumerate(headers):
+        _set_cell_text(table.rows[0].cells[j], h, bold=True)
+    for i, days in enumerate(sorted(snapshot.windows)):
+        w = snapshot.windows[days]
+        row = table.rows[i + 1].cells
+        _set_cell_text(row[0], f"{days} days")
+        _set_cell_text(row[1], _fmt_mean_ci(w.mean_ci))
+        _set_cell_text(row[2], str(w.mean_ci.n))
+        _set_cell_text(row[3], str(w.rescue_events))
+        _set_cell_text(row[4], _fmt_rescue_cadence(days, w.rescue_events))
+
+
+def _fmt_rescue_cadence(window_days: int, count: int) -> str:
+    if count <= 0:
+        return "—"
+    return f"every ~{window_days / count:.1f} days"
+
+
+# --------------------------------------------------------------------------- #
+# Section 9: Open questions                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def _add_section_9_questions(doc: DocxDocument) -> None:
+    _add_section_heading(doc, "9. Open clinical questions")
     para = doc.add_paragraph()
     r = para.add_run("(Add questions here before the visit.)")
     r.italic = True
@@ -576,12 +636,12 @@ def _add_section_8_questions(doc: DocxDocument) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Section 9: Appendix                                                         #
+# Section 10: Appendix                                                        #
 # --------------------------------------------------------------------------- #
 
 
-def _add_section_9_appendix(doc: DocxDocument, inputs: ReportInputs) -> None:
-    _add_section_heading(doc, f"9. Appendix — raw daily counts, last {APPENDIX_DAYS} days")
+def _add_section_10_appendix(doc: DocxDocument, inputs: ReportInputs) -> None:
+    _add_section_heading(doc, f"10. Appendix — raw daily counts, last {APPENDIX_DAYS} days")
     pd = __import__("pandas")
     daily = inputs.log.daily
     end = inputs.log.latest_date

@@ -15,7 +15,7 @@ import pandas as pd
 
 from .ingest import load_log
 from .report import ReportInputs, build_report, convert_to_pdf
-from .stats import analyze_recent_changes
+from .stats import analyze_recent_changes, current_baseline
 from .visualize import render_all_charts
 
 
@@ -97,12 +97,14 @@ def visit_prep(
 
     click.echo("Running pre/post analyses...")
     analyses = analyze_recent_changes(log, k=2)
+    baseline = current_baseline(log)
 
     click.echo("Building document...")
     inputs = ReportInputs(
         log=log,
         chart_paths=chart_paths,
         analyses=analyses,
+        baseline=baseline,
         visit_date=parsed_visit_date,
         lookback_days=lookback,
     )

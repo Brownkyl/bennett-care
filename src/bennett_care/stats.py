@@ -66,6 +66,29 @@ class PrePostAnalysis:
     windows: dict[int, PrePostWindow]
 
 
+@dataclass(frozen=True)
+class BaselineWindow:
+    """Current-baseline numbers for one trailing window ending at the latest log date."""
+
+    days: int
+    mean_ci: MeanCI
+    rescue_events: int
+
+
+@dataclass(frozen=True)
+class BaselineSnapshot:
+    """Current-state snapshot: where the baseline sits *right now*, in 14/28/56-day views.
+
+    ``last_real_change_date`` and ``days_since_last_real_change`` are None when the log
+    has no real (non-rescue-note) med changes at all.
+    """
+
+    latest_date: pd.Timestamp
+    last_real_change_date: pd.Timestamp | None
+    days_since_last_real_change: int | None
+    windows: dict[int, BaselineWindow]
+
+
 # --------------------------------------------------------------------------- #
 # Public                                                                      #
 # --------------------------------------------------------------------------- #
@@ -106,6 +129,45 @@ def analyze_recent_changes(
             )
         )
     return analyses
+
+
+def current_baseline(
+    log: SeizureLog,
+    *,
+    window_sizes: tuple[int, ...] = DEFAULT_WINDOWS,
+) -> BaselineSnapshot:
+    """Trailing-window snapshot of the *current* baseline, ending at ``log.latest_date``.
+
+    For each window size W, computes the mean daily seizure count (with bootstrap BCa CI)
+    and the number of rescue-event dates falling inside ``[latest - W + 1, latest]``.
+    Rescue dates are the union per ``rescue_event_dates`` (cluster flags + Meds-column notes).
+
+    ``days_since_last_real_change`` is measured to ``latest_date``, in calendar days; it
+    is None when the log has no real med changes.
+    """
+    latest = log.latest_date
+    real_changes = [c for c in log.med_changes if c.regimen]
+    last_change = real_changes[-1].date if real_changes else None
+    days_since = int((latest - last_change).days) if last_change is not None else None
+
+    rescue_dates = rescue_event_dates(log)
+    windows: dict[int, BaselineWindow] = {}
+    for w in window_sizes:
+        start = latest - pd.Timedelta(days=w - 1)
+        counts = _window_counts(log.daily, start, latest)
+        rescue_count = sum(1 for d in rescue_dates if start <= d <= latest)
+        windows[w] = BaselineWindow(
+            days=w,
+            mean_ci=mean_with_bootstrap_ci(counts),
+            rescue_events=rescue_count,
+        )
+
+    return BaselineSnapshot(
+        latest_date=latest,
+        last_real_change_date=last_change,
+        days_since_last_real_change=days_since,
+        windows=windows,
+    )
 
 
 def mean_with_bootstrap_ci(
