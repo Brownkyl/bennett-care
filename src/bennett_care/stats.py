@@ -100,8 +100,8 @@ def analyze_recent_changes(
         analyses.append(
             PrePostAnalysis(
                 change_date=change.date,
-                regimen_str=_format_regimen(change.regimen),
-                delta_str=_format_delta(prev.regimen if prev else None, change.regimen),
+                regimen_str=format_regimen(change.regimen),
+                delta_str=format_regimen_delta(prev.regimen if prev else None, change.regimen),
                 windows=windows,
             )
         )
@@ -212,11 +212,24 @@ def _mann_whitney(pre: np.ndarray, post: np.ndarray) -> float | None:
 
 
 # --------------------------------------------------------------------------- #
-# Formatting helpers                                                          #
+# Public helpers used by visualize + report                                   #
 # --------------------------------------------------------------------------- #
 
 
-def _format_regimen(regimen: dict[str, tuple[Dose, ...]]) -> str:
+def real_changes_with_prev(
+    log: SeizureLog,
+) -> list[tuple[MedChange, MedChange | None]]:
+    """Return ``(change, previous_real_change_or_None)`` for every real med change.
+
+    Rescue-note entries (empty regimen) are excluded — they don't represent
+    regimen changes, so they're never the "previous" for delta computation.
+    """
+    real = [c for c in log.med_changes if c.regimen]
+    return [(c, real[i - 1] if i > 0 else None) for i, c in enumerate(real)]
+
+
+def format_regimen(regimen: dict[str, tuple[Dose, ...]]) -> str:
+    """Render a regimen as ``"Drug A/B; Drug X/Y"``."""
     parts = []
     for drug, doses in regimen.items():
         dose_str = "/".join(f"{d.amount_ml}{d.timing}" for d in doses)
@@ -224,7 +237,7 @@ def _format_regimen(regimen: dict[str, tuple[Dose, ...]]) -> str:
     return "; ".join(parts)
 
 
-def _format_delta(
+def format_regimen_delta(
     prev: dict[str, tuple[Dose, ...]] | None,
     curr: dict[str, tuple[Dose, ...]],
 ) -> str:
