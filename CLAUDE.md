@@ -79,15 +79,15 @@ bennett-care visit-prep --log data/seizure_log.xlsx --visit-date 2026-08-04 --lo
 
 Output: a `.docx` in `output/` with sections:
 
-1. Header (name, weight, visit date, current regimen parsed from most recent med change)
+1. Header (name, weight, visit date, **lookback window shown as "Last N days (date range)" — NOT a count of monitored days or excluded dates**, neurologist, current regimen parsed from most recent med change).
 2. Weekly seizure totals chart (last 90 days, ISO-week sums) **plus** a horizontal medication-change timeline table beneath the chart (Date | Change | Full regimen after). Med changes are NOT annotated on the chart itself — the table is the source of truth.
-3. 14-day rolling average chart, last 180 days
-4. Seizures by hour of day, last 90 days. Simple 24-bar chart (NOT a day-of-week heatmap — clinical signal is the time-of-day pattern, not weekday).
+3. 14-day rolling average chart, last 180 days.
+4. Seizures by hour of day, last 90 days. Simple 24-bar chart with **12-hour AM/PM clock labels** (NOT a day-of-week heatmap, NOT a 24-hour clock — clinical signal is the time-of-day pattern, and the user reads time in 12-hour format).
 5. Pre/post statistics table for the two most recent real med changes. Plain-English column headers, a "How to read this" key block before/after the tables defining confidence interval, Hedges' g (with magnitude labels: small / medium / large / very large), p-value, and an explicit no-causation caveat. Sample windows 14 / 28 / 56 days; bootstrap-BCa 95% CIs; Hedges' g + Mann-Whitney U.
-6. Seizure type distribution (typed clusters only, coverage in caption)
-7. Flag summary (rescue meds given, ended-in-tonic, school events)
-8. Open clinical questions — empty template section
-9. Appendix: raw daily counts for last 30 days
+6. Seizure type distribution (typed clusters only, coverage in caption).
+7. Flag summary (rescue meds given via cluster flags, rescue notes in Meds column, distinct rescue dates, ended-in-tonic). **No school events row** — explicitly removed at user request.
+8. Open clinical questions — empty template section.
+9. Appendix: raw daily counts for last 30 days.
 
 **Removed (was section 8): "Notable days" was dropped at user request. The `notable_days()` function remains in `stats.py` for possible future use.**
 

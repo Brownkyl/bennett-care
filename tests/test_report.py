@@ -200,8 +200,41 @@ def test_report_flag_table_present(built_report: Path) -> None:
         if t.rows[0].cells[0].text.strip() == "Event type"
     ]
     assert len(flag_tables) == 1
-    # 5 rows of event types
-    assert len(flag_tables[0].rows) == 6
+    # Header + 4 event-type rows (school events explicitly removed per user request).
+    assert len(flag_tables[0].rows) == 5
+
+
+def test_report_flag_table_omits_school_events(built_report: Path) -> None:
+    doc = Document(str(built_report))
+    flag_text = " ".join(
+        cell.text for t in doc.tables for row in t.rows for cell in row.cells
+        if t.rows[0].cells[0].text.strip() == "Event type"
+    )
+    assert "school" not in flag_text.lower()
+
+
+def test_report_section_1_shows_lookback_window_not_monitored_days(built_report: Path) -> None:
+    """Section 1's facts table should show the analysis window, NOT 'Monitored days' or 'Excluded dates'."""
+    doc = Document(str(built_report))
+    # The first table after the brand band is section 1's facts table; find it by its left-column labels.
+    facts_table = None
+    for t in doc.tables:
+        labels = [t.rows[i].cells[0].text.strip() for i in range(len(t.rows))]
+        if "Patient" in labels and "Visit date" in labels:
+            facts_table = t
+            break
+    assert facts_table is not None
+    labels = {t_row.cells[0].text.strip() for t_row in facts_table.rows}
+    assert "Charts cover" in labels
+    assert "Monitored days in log" not in labels
+    assert "Excluded dates (unmonitored / uncertain)" not in labels
+    # The "Charts cover" value should mention the day count and a date range.
+    value_for_charts = next(
+        row.cells[1].text.strip() for row in facts_table.rows
+        if row.cells[0].text.strip() == "Charts cover"
+    )
+    assert "90 days" in value_for_charts
+    assert "–" in value_for_charts or "-" in value_for_charts
 
 
 def test_report_no_causal_language(built_report: Path) -> None:

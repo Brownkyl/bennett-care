@@ -207,12 +207,19 @@ def _add_section_1_header(doc: DocxDocument, inputs: ReportInputs) -> None:
     _add_section_heading(doc, "1. Patient & current regimen")
     log = inputs.log
 
+    pd_mod = __import__("pandas")
+    window_end = log.latest_date
+    window_start = window_end - pd_mod.Timedelta(days=inputs.lookback_days - 1)
+    window_str = (
+        f"Last {inputs.lookback_days} days "
+        f"({window_start.strftime('%b %-d')} – {window_end.strftime('%b %-d, %Y')})"
+    )
+
     facts = [
         ("Patient", f"{PATIENT_NAME} (~{PATIENT_WEIGHT_LB:.0f} lb / {PATIENT_WEIGHT_KG:.1f} kg)"),
         ("Visit date", inputs.visit_date.isoformat()),
         ("Data through", log.latest_date.date().isoformat()),
-        ("Monitored days in log", f"{len(log.daily)}"),
-        ("Excluded dates (unmonitored / uncertain)", f"{len(log.excluded_dates)}"),
+        ("Charts cover", window_str),
         ("Neurologist", f"{NEUROLOGIST}, {INSTITUTION}"),
     ]
     table = doc.add_table(rows=len(facts), cols=2)
@@ -494,15 +501,13 @@ def _add_section_7_flags(doc: DocxDocument, inputs: ReportInputs) -> None:
     rescue_dates = rescue_event_dates(log)
     rescue_dates_in_window = sum(1 for d in rescue_dates if start <= d <= end)
     ended_tonic = count_flag(in_window, "ended_in_tonic")
-    school = count_flag(in_window, ["school_data", "school_data_pending"])
 
-    headers = ["Event type", "Count in last 90 days", "Notes"]
+    headers = ["Event type", f"Count in last {inputs.lookback_days} days", "Notes"]
     rows = [
         ("Rescue meds given (cluster flags)", rescue_clusters, "Clusters tagged `rescue_meds_given`."),
         ("Rescue notes in Meds column", rescue_notes, "Free-text rescue entries co-located with regimen log."),
         ("Distinct dates with rescue evidence", rescue_dates_in_window, "Union of the two rows above."),
         ("Ended in tonic", ended_tonic, "Clusters tagged `ended_in_tonic`."),
-        ("School events", school, "Clusters tagged `school_data` or `school_data_pending`."),
     ]
     table = doc.add_table(rows=1 + len(rows), cols=3)
     for j, h in enumerate(headers):

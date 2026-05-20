@@ -160,11 +160,23 @@ def _render_rolling_avg(log: SeizureLog, out: Path, lookback: int) -> Path:
 # --------------------------------------------------------------------------- #
 
 
+def _hour_label_12h(h: int) -> str:
+    """Convert 0-23 hour to 12-hour AM/PM label (e.g., 0 -> "12 AM", 13 -> "1 PM")."""
+    if h == 0:
+        return "12 AM"
+    if h < 12:
+        return f"{h} AM"
+    if h == 12:
+        return "12 PM"
+    return f"{h - 12} PM"
+
+
 def _render_hour_distribution(log: SeizureLog, out: Path, lookback: int) -> Path:
     """Total seizure count per hour of day across the lookback window.
 
     Day-of-week dimension is deliberately collapsed away — the clinical signal
-    is the time-of-day pattern, not weekday variation.
+    is the time-of-day pattern, not weekday variation. X-axis labels use a
+    12-hour clock with AM/PM suffixes.
     """
     end = log.latest_date
     start = end - pd.Timedelta(days=lookback - 1)
@@ -192,15 +204,20 @@ def _render_hour_distribution(log: SeizureLog, out: Path, lookback: int) -> Path
         peak_val = int(by_hour.max())
         ax.bar([peak_hour], [peak_val], color="#b03a2e", edgecolor="none", width=0.85)
         ax.annotate(
-            f"peak: {peak_hour:02d}:00 ({peak_val})",
+            f"peak: {_hour_label_12h(peak_hour)} ({peak_val})",
             xy=(peak_hour, peak_val),
             xytext=(peak_hour, peak_val + max(by_hour.values) * 0.06),
             fontsize=9, ha="center", color="#b03a2e",
         )
         ax.set_xticks(range(0, 24))
-        ax.set_xticklabels([f"{h:02d}" for h in range(0, 24)], fontsize=8)
+        ax.set_xticklabels(
+            [_hour_label_12h(h) for h in range(0, 24)],
+            fontsize=8,
+            rotation=45,
+            ha="right",
+        )
         ax.set_xlim(-0.6, 23.6)
-        ax.set_xlabel("Hour of day (24-hour clock)")
+        ax.set_xlabel("Time of day")
         ax.set_ylabel("Total seizures")
     ax.set_title(f"Seizures by hour of day, {start.date()} – {end.date()}")
     fig.tight_layout()
