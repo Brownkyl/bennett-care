@@ -1,0 +1,47 @@
+# --- Patient data: NEVER COMMIT ---
+data/
+output/
+reference/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- uv ---
+# Keep uv.lock committed for reproducibility (do NOT ignore it).
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Misc ---
+*.log
