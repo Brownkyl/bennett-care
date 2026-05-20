@@ -99,6 +99,8 @@ Output: a `.docx` in `output/` with sections:
 - **Notable-days threshold**: > 2 SD above a *strictly trailing* 28-day mean (the day itself is excluded). Skipped (not errored) when <28 days of history exist.
 - **Effect size**: Hedges' g (small-sample-corrected Cohen's d).
 - **Excluded dates**: clusters and dates with Day Status ∈ {`unmonitored`, `uncertain`} are dropped before any analysis. Excluded date count is surfaced in the report's data-quality footnote.
+- **Section 6 (Seizure Type distribution)**: plot only clusters with a non-blank `Seizure Type` (≈5% of clusters in the current log). The chart caption must state the typed-cluster count and total, e.g. *"Based on 114 of 2,247 clusters (5%) with a Seizure Type recorded; remaining 95% untyped."*
+- **Med changes vs. rescue notes in the Meds column**: a `MedChange` is "real" iff its parsed `regimen` is non-empty. Entries that parse to an empty regimen (e.g. *"Gave rescue meds at 9:28pm"*) are rescue-event notes — those dates feed the rescue-event count in Section 7 alongside the `rescue_meds_given` flag tokens, and are NOT drawn as vertical lines on the daily-totals chart.
 
 ## Project structure
 
