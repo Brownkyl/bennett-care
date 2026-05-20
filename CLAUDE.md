@@ -58,13 +58,13 @@ The Excel log lives at `data/seizure_log.xlsx` (gitignored). Two sheets:
 ### Sheet: `Cluster Detail`
 - `Date`, `Cluster #`, `Start Time`, `Duration (min)`, `Seizure Count`, `Seizure Type`, `Day Status`, `Verified`, `Flags`, `Notes`
 - ~2,257 rows
-- `Seizure Type`: free-text descriptors (`myoclonic`, `atonic`, etc.) — normalize via lowercase + strip
-- `Flags`: free-text uppercase phrases (e.g., `GAVE RESCUE MEDS`). Match case-insensitively by substring keyword:
-  - `RESCUE` → rescue-meds-given
-  - `TONIC` → ended-in-tonic
-  - `SCHOOL` → school event
-- `Day Status`: a logging marker, not a filter category — ignore for analysis
-- `Verified`: yes/blank — currently informational only
+- `Seizure Type`: free-text descriptors. Observed vocabulary: `atonic`, `myoclonic-atonic`, `myoclonic-to-tonic`, `tonic`, `tonic-clonic`. Normalize via lowercase + strip.
+- `Flags`: comma-separated lowercase snake_case tokens. Use **exact-token match** after splitting on `,` and stripping. Observed vocabulary (21 tokens):
+  - **Clinical**: `rescue_meds_given`, `ended_in_tonic`, `school_data`, `school_data_pending`
+  - **Data quality** (informational): `ambiguous_am_pm`, `approx_count`, `approx_dur`, `at_least`, `bare_count`, `count_range_*`, `date_corrected_from_*`, `dur_range_*`, `no_time`, `orphan_time_line`, `partial_data_loss`, `partial_unmonitored_note`, `suspected_event`, `unknown_count`
+  - Section 7 of the report counts: `rescue_meds_given`, `ended_in_tonic`, and `school_data` + `school_data_pending` (combined as "school events").
+- `Day Status`: one of `logged` (normal), `unmonitored` (Bennett not being watched), `uncertain` (ambiguous). **Dates with `unmonitored` or `uncertain` status are excluded from the daily-count series, all charts, all stats.** Per-date status is unambiguous (no mixed-status dates observed).
+- `Verified`: `Y` or blank — currently informational only.
 
 ### Source of truth
 **Daily seizure counts are recomputed from `Cluster Detail`** (sum of `Seizure Count` per date). The `Daily Total` column in `All Data` is treated as informational; mismatches between the two are surfaced as a data-quality warning but do not block the report.
@@ -98,6 +98,7 @@ Output: a `.docx` in `output/` with sections:
 - **Pre/post windows around med changes**: full requested window used even if it crosses another change date; any contaminated window is flagged with a footnote.
 - **Notable-days threshold**: > 2 SD above a *strictly trailing* 28-day mean (the day itself is excluded). Skipped (not errored) when <28 days of history exist.
 - **Effect size**: Hedges' g (small-sample-corrected Cohen's d).
+- **Excluded dates**: clusters and dates with Day Status ∈ {`unmonitored`, `uncertain`} are dropped before any analysis. Excluded date count is surfaced in the report's data-quality footnote.
 
 ## Project structure
 
