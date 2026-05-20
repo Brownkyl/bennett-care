@@ -14,6 +14,8 @@ from bennett_care.stats import (
     analyze_recent_changes,
     hedges_g,
     mean_with_bootstrap_ci,
+    notable_days,
+    rescue_event_dates,
 )
 
 
@@ -252,3 +254,88 @@ def test_analyze_returns_pre_post_analysis_dataclass() -> None:
     out = analyze_recent_changes(log, k=1)
     assert isinstance(out[0], PrePostAnalysis)
     assert isinstance(out[0].windows[14].pre, MeanCI)
+
+
+# --------------------------------------------------------------------------- #
+# notable_days                                                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_notable_days_flags_spike_above_trailing() -> None:
+    dates = pd.date_range("2026-01-01", periods=60, freq="D")
+    counts = np.full(60, 10, dtype=int)
+    counts[40] = 50  # large spike well above mean+2sd of steady 10s
+    daily = pd.DataFrame(
+        {"count": counts, "daily_total_recorded": counts, "mismatch": [False] * 60},
+        index=dates,
+    )
+    daily.index.name = "Date"
+    result = notable_days(daily, window=28)
+    assert dates[40] in result.index
+    assert result.loc[dates[40], "count"] == 50
+
+
+def test_notable_days_skips_early_days_without_enough_history() -> None:
+    dates = pd.date_range("2026-01-01", periods=10, freq="D")
+    counts = np.array([100, 1, 1, 1, 1, 1, 1, 1, 1, 1])  # day 0 is huge but no history
+    daily = pd.DataFrame(
+        {"count": counts, "daily_total_recorded": counts, "mismatch": [False] * 10},
+        index=dates,
+    )
+    daily.index.name = "Date"
+    result = notable_days(daily, window=28)
+    assert result.empty  # no day has 28 days of prior history
+
+
+def test_notable_days_uses_strictly_trailing_window() -> None:
+    """The spiking day's own value must not be part of its own mean/sd."""
+    dates = pd.date_range("2026-01-01", periods=60, freq="D")
+    counts = np.full(60, 10, dtype=int)
+    counts[40] = 80
+    daily = pd.DataFrame(
+        {"count": counts, "daily_total_recorded": counts, "mismatch": [False] * 60},
+        index=dates,
+    )
+    daily.index.name = "Date"
+    result = notable_days(daily, window=28)
+    # Trailing mean for day 40 = mean of days 12..39 = 10 (since the spike isn't included).
+    assert result.loc[dates[40], "trailing_mean"] == 10.0
+
+
+# --------------------------------------------------------------------------- #
+# rescue_event_dates                                                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_rescue_event_dates_unions_flags_and_notes() -> None:
+    dates = pd.date_range("2026-01-01", periods=10, freq="D")
+    clusters = pd.DataFrame(
+        {
+            "Date": [dates[0], dates[2], dates[5]],
+            "flag_tokens": [
+                frozenset({"rescue_meds_given"}),
+                frozenset(),
+                frozenset({"rescue_meds_given", "ended_in_tonic"}),
+            ],
+        }
+    )
+    daily = pd.DataFrame(
+        {"count": [0] * 10, "daily_total_recorded": [0] * 10, "mismatch": [False] * 10},
+        index=dates,
+    )
+    daily.index.name = "Date"
+    log = SeizureLog(
+        daily=daily,
+        clusters=clusters,
+        med_changes=[
+            MedChange(date=dates[1], raw="Gave rescue meds at 8pm", regimen={}),
+            MedChange(date=dates[3], raw="general narrative note", regimen={}),
+            MedChange(date=dates[7], raw="Clobazam 1mL am", regimen={"Clobazam": (Dose(1.0, "am"),)}),
+        ],
+        mismatches=pd.DataFrame(),
+        excluded_dates=pd.DatetimeIndex([]),
+    )
+    result = rescue_event_dates(log)
+    # Flag dates: 0, 5. Note-with-rescue date: 1. Plain note (no "rescue"): NOT included.
+    # Real med change: NOT included.
+    assert result == {dates[0], dates[1], dates[5]}

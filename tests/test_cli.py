@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import zipfile
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -36,6 +37,53 @@ def test_inspect_mismatches_writes_csv(sample_log_path: Path, tmp_path: Path) ->
     assert rows[0]["all_data_daily_total"] == "5"
     assert rows[0]["diff"] == "-1"
     assert rows[0]["abs_diff"] == "1"
+
+
+def test_visit_prep_end_to_end(sample_log_path: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "visit-prep",
+            "--log",
+            str(sample_log_path),
+            "--visit-date",
+            "2026-08-04",
+            "--lookback",
+            "30",
+            "--rolling-lookback",
+            "30",
+            "--output",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    docs = list(out.glob("bennett_visit_2026-08-04_*.docx"))
+    assert len(docs) == 1
+    assert zipfile.is_zipfile(docs[0])
+    charts_dirs = list((out / "charts").iterdir())
+    assert len(charts_dirs) == 1
+    expected_pngs = {"daily_totals.png", "rolling_avg.png", "tod_heatmap.png", "type_distribution.png"}
+    assert {p.name for p in charts_dirs[0].iterdir()} == expected_pngs
+
+
+def test_visit_prep_rejects_bad_date(sample_log_path: Path, tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "visit-prep",
+            "--log",
+            str(sample_log_path),
+            "--visit-date",
+            "not-a-date",
+            "--output",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "YYYY-MM-DD" in result.output
 
 
 def test_inspect_mismatches_no_mismatches(tmp_path: Path) -> None:

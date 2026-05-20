@@ -216,6 +216,50 @@ def _mann_whitney(pre: np.ndarray, post: np.ndarray) -> float | None:
 # --------------------------------------------------------------------------- #
 
 
+def notable_days(
+    daily: pd.DataFrame,
+    *,
+    threshold_sd: float = 2.0,
+    window: int = 28,
+) -> pd.DataFrame:
+    """Days where the count exceeds (trailing 28-day mean + threshold_sd × trailing SD).
+
+    Per CLAUDE.md: trailing window is *strictly* trailing (the day itself is excluded
+    from its own mean/SD). Days with fewer than ``window`` prior monitored days are
+    skipped silently (insufficient history). Returns a DataFrame indexed by date with
+    columns ``count``, ``trailing_mean``, ``trailing_std``, ``z_score``.
+    """
+    counts = daily["count"]
+    shifted = counts.shift(1)
+    trailing_mean = shifted.rolling(window=window, min_periods=window).mean()
+    trailing_std = shifted.rolling(window=window, min_periods=window).std()
+    safe_std = trailing_std.where(trailing_std > 0)
+    threshold = trailing_mean + threshold_sd * trailing_std
+    is_notable = counts > threshold
+    mask = is_notable & trailing_mean.notna() & trailing_std.notna()
+    return pd.DataFrame(
+        {
+            "count": counts[mask].astype(int),
+            "trailing_mean": trailing_mean[mask].round(2),
+            "trailing_std": trailing_std[mask].round(2),
+            "z_score": ((counts[mask] - trailing_mean[mask]) / safe_std[mask]).round(2),
+        }
+    )
+
+
+def rescue_event_dates(log: SeizureLog) -> set[pd.Timestamp]:
+    """All dates with rescue-event evidence: ``rescue_meds_given`` cluster flag OR
+    a Meds-column entry that parsed to no regimen and mentions "rescue"."""
+    flag_mask = log.clusters["flag_tokens"].apply(lambda s: "rescue_meds_given" in s)
+    flag_dates = set(log.clusters.loc[flag_mask, "Date"])
+    note_dates = {
+        c.date
+        for c in log.med_changes
+        if not c.regimen and "rescue" in c.raw.lower()
+    }
+    return flag_dates | note_dates
+
+
 def real_changes_with_prev(
     log: SeizureLog,
 ) -> list[tuple[MedChange, MedChange | None]]:
