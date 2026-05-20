@@ -3,15 +3,15 @@
 Section layout (per CLAUDE.md):
   Brand band: "Bennett — Pre-Visit Summary | Visit: <date>"
   1. Header (patient, visit, neurologist, current regimen)
-  2. Daily totals chart
+  2. Weekly seizure totals chart + horizontal medication-change timeline table
   3. 14-day rolling average chart
-  4. Time-of-day heatmap
-  5. Pre/post statistics table for the two most recent med changes
+  4. Seizures by hour of day (24-bar chart, no day-of-week dimension)
+  5. Pre/post statistics with a "How to read this" key block (plain-English
+     column headers, magnitude labels on Hedges' g, explicit no-causation note)
   6. Seizure type distribution
   7. Flags summary (rescue, ended-in-tonic, school)
-  8. Notable days (>2 SD above trailing 28-day mean)
-  9. Open clinical questions (empty template)
-  10. Appendix: raw daily counts for last 30 days
+  8. Open clinical questions (empty template)
+  9. Appendix: raw daily counts for last 30 days
 
 All output is factual; no causal language. The user composes narrative
 from this document during the clinic visit.
@@ -36,7 +36,8 @@ from .ingest import SeizureLog, count_flag
 from .stats import (
     PrePostAnalysis,
     format_regimen,
-    notable_days,
+    format_regimen_delta,
+    real_changes_with_prev,
     rescue_event_dates,
 )
 from .visualize import ChartPaths
@@ -78,22 +79,20 @@ def build_report(inputs: ReportInputs, *, output_path: str | Path) -> Path:
 
     _add_brand_band(doc, inputs.visit_date)
     _add_section_1_header(doc, inputs)
-    _add_chart_section(doc, "2. Daily seizure counts", inputs.chart_paths.daily_totals,
-                       caption=f"Last {inputs.lookback_days} days of monitored data. "
-                               "Dashed lines mark regimen changes.")
+    _add_section_2_trends(doc, inputs)
     _add_chart_section(doc, "3. 14-day rolling average", inputs.chart_paths.rolling_avg,
-                       caption="14-day trailing mean of daily seizure counts.")
-    _add_chart_section(doc, "4. Time-of-day heatmap", inputs.chart_paths.tod_heatmap,
-                       caption=f"Hour × day-of-week intensity of seizures in clusters with a "
-                               f"recorded time, last {inputs.lookback_days} days.")
+                       caption="14-day trailing mean of daily seizure counts. Smooths week-to-week "
+                               "noise so longer-term trajectories are visible.")
+    _add_chart_section(doc, "4. Seizures by hour of day", inputs.chart_paths.hour_distribution,
+                       caption=f"Total seizures by hour across the last {inputs.lookback_days} days "
+                               "of monitored clusters with a recorded time. Peak hour is highlighted.")
     _add_section_5_prepost(doc, inputs)
     _add_chart_section(doc, "6. Seizure type distribution", inputs.chart_paths.type_distribution,
                        caption="Distribution among clusters that have a Seizure Type recorded "
                                "(coverage shown in chart).")
     _add_section_7_flags(doc, inputs)
-    _add_section_8_notable(doc, inputs)
-    _add_section_9_questions(doc)
-    _add_section_10_appendix(doc, inputs)
+    _add_section_8_questions(doc)
+    _add_section_9_appendix(doc, inputs)
 
     doc.save(output_path)
     return output_path
@@ -250,56 +249,176 @@ def _set_cell_text(cell: _Cell, text: str, *, bold: bool = False) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Section 5: Pre/post statistics                                              #
+# Section 2: Trends + medication-change timeline                              #
+# --------------------------------------------------------------------------- #
+
+
+def _add_section_2_trends(doc: DocxDocument, inputs: ReportInputs) -> None:
+    _add_section_heading(doc, "2. Weekly seizure totals & medication-change timeline")
+    doc.add_picture(str(inputs.chart_paths.weekly_trend), width=Inches(6.5))
+    _add_caption(
+        doc,
+        f"Weekly sums of daily seizure counts over the last {inputs.lookback_days} days. "
+        "Dotted line marks the median weekly total in this window.",
+    )
+    doc.add_paragraph()
+
+    sub = doc.add_paragraph()
+    sub_run = sub.add_run("Medication changes in this window:")
+    sub_run.bold = True
+
+    log = inputs.log
+    end = log.latest_date
+    pd_mod = __import__("pandas")
+    start = end - pd_mod.Timedelta(days=inputs.lookback_days - 1)
+    pairs = real_changes_with_prev(log)
+    in_window = [(c, p) for c, p in pairs if start <= c.date <= end]
+
+    if not in_window:
+        doc.add_paragraph(f"  No regimen changes in the last {inputs.lookback_days} days.")
+        return
+
+    headers = ["Date", "Change", "Full regimen after change"]
+    table = doc.add_table(rows=1 + len(in_window), cols=3)
+    table.autofit = False
+    widths = (Inches(1.0), Inches(2.4), Inches(3.1))
+    for j, (h, w) in enumerate(zip(headers, widths)):
+        _set_cell_text(table.rows[0].cells[j], h, bold=True)
+        table.rows[0].cells[j].width = w
+    for i, (change, prev) in enumerate(in_window):
+        cells = table.rows[i + 1].cells
+        delta = format_regimen_delta(prev.regimen if prev else None, change.regimen)
+        regimen_str = format_regimen(change.regimen)
+        _set_cell_text(cells[0], change.date.strftime("%b %-d, %Y"))
+        _set_cell_text(cells[1], delta)
+        _set_cell_text(cells[2], regimen_str)
+        for cell, w in zip(cells, widths):
+            cell.width = w
+
+
+# --------------------------------------------------------------------------- #
+# Section 5: Pre/post statistics with a plain-English key block               #
 # --------------------------------------------------------------------------- #
 
 
 def _add_section_5_prepost(doc: DocxDocument, inputs: ReportInputs) -> None:
-    _add_section_heading(doc, "5. Pre / post statistics — two most recent regimen changes")
+    _add_section_heading(doc, "5. Pre / post comparison — two most recent regimen changes")
     if not inputs.analyses:
         doc.add_paragraph("No real regimen changes in the log; nothing to analyze.")
         return
 
-    intro = (
-        "Each row reports the mean daily seizure count in a window before and after "
-        "the change, with a bootstrap-BCa 95% CI (10,000 resamples, seeded). "
-        "Hedges' g is the standardized effect (post − pre); negative means lower post-mean. "
-        "Mann-Whitney p is a two-sided non-parametric test, no significance threshold applied."
+    intro = doc.add_paragraph(
+        "This section compares Bennett's daily seizure counts in the days BEFORE and "
+        "AFTER each of his two most recent regimen changes. Three window sizes are shown "
+        "on either side of each change (14, 28, and 56 days) so short-term and longer-term "
+        "patterns are both visible. All numbers are descriptive — they say what happened in "
+        "time around the change, not what caused it."
     )
-    _add_caption(doc, intro)
+    intro.paragraph_format.space_after = Pt(6)
+
+    _add_reading_key(doc)
+    doc.add_paragraph()
 
     for analysis in inputs.analyses:
-        para = doc.add_paragraph()
-        run = para.add_run(f"Change on {analysis.change_date.date().isoformat()} — {analysis.delta_str}")
-        run.bold = True
-        para2 = doc.add_paragraph()
-        r2 = para2.add_run(f"Regimen after change: {analysis.regimen_str}")
-        r2.italic = True
-        r2.font.size = Pt(9)
-        r2.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
+        title = doc.add_paragraph()
+        t_run = title.add_run(
+            f"Change on {analysis.change_date.strftime('%B %-d, %Y')} — {analysis.delta_str}"
+        )
+        t_run.bold = True
+        t_run.font.size = Pt(12)
 
-        headers = ["Window", "Pre mean (95% CI)", "n", "Post mean (95% CI)", "n",
-                   "Hedges' g", "MW p", "Window crosses other change?"]
+        sub = doc.add_paragraph()
+        sub_run = sub.add_run(f"Full regimen after this change: {analysis.regimen_str}")
+        sub_run.italic = True
+        sub_run.font.size = Pt(9)
+        sub_run.font.color.rgb = RGBColor(0x60, 0x60, 0x60)
+
+        headers = [
+            "Window",
+            "Avg daily seizures BEFORE (95% CI)",
+            "Days observed",
+            "Avg daily seizures AFTER (95% CI)",
+            "Days observed",
+            "Effect size (Hedges' g)",
+            "How likely is this from chance? (p)",
+            "Another change inside window?",
+        ]
         table = doc.add_table(rows=1 + len(analysis.windows), cols=len(headers))
         for j, h in enumerate(headers):
             _set_cell_text(table.rows[0].cells[j], h, bold=True)
         for i, days in enumerate(sorted(analysis.windows)):
             w = analysis.windows[days]
             row = table.rows[i + 1].cells
-            _set_cell_text(row[0], f"{days} d")
+            _set_cell_text(row[0], f"{days} days")
             _set_cell_text(row[1], _fmt_mean_ci(w.pre))
             _set_cell_text(row[2], str(w.pre.n))
             _set_cell_text(row[3], _fmt_mean_ci(w.post))
             _set_cell_text(row[4], str(w.post.n))
-            _set_cell_text(row[5], f"{w.hedges_g:+.3f}" if w.hedges_g is not None else "n/a")
-            _set_cell_text(row[6], f"{w.mann_whitney_p:.4f}" if w.mann_whitney_p is not None else "n/a")
-            overlap_parts = []
-            if w.pre_contains_other_change:
-                overlap_parts.append("pre")
-            if w.post_contains_other_change:
-                overlap_parts.append("post")
-            _set_cell_text(row[7], ", ".join(overlap_parts) if overlap_parts else "no")
+            _set_cell_text(row[5], _fmt_hedges(w.hedges_g))
+            _set_cell_text(row[6], _fmt_pvalue(w.mann_whitney_p))
+            _set_cell_text(row[7], _fmt_overlap(w.pre_contains_other_change,
+                                                w.post_contains_other_change))
         doc.add_paragraph()
+
+    caveat = doc.add_paragraph()
+    c_run = caveat.add_run(
+        "Important: these comparisons are observational. Other factors that may also "
+        "have changed (sleep, illness, growth, other medications, season, the two recent "
+        "changes contaminating each other's windows) could contribute to any difference. "
+        "The statistics describe what happened, not why."
+    )
+    c_run.italic = True
+    c_run.font.size = Pt(9.5)
+    c_run.font.color.rgb = RGBColor(0x40, 0x40, 0x40)
+
+
+def _add_reading_key(doc: DocxDocument) -> None:
+    """A small 2-column glossary so the table cells are readable without prior stats knowledge."""
+    para = doc.add_paragraph()
+    head = para.add_run("How to read this table:")
+    head.bold = True
+
+    rows = [
+        (
+            "Avg daily seizures (95% CI)",
+            "Average number of seizures per day in the window, with the 95% "
+            "confidence interval — the range of plausible true averages given the data. "
+            "Computed by bootstrap (10,000 resamples).",
+        ),
+        (
+            "Days observed",
+            "Number of monitored days actually present in the window. May be fewer "
+            "than the window length when data runs out or some days were excluded.",
+        ),
+        (
+            "Effect size (Hedges' g)",
+            "How big the difference between BEFORE and AFTER is, measured in units of "
+            "typical day-to-day variation. Conventional labels: 0.2 = small, 0.5 = medium, "
+            "0.8 = large, 1.2 or more = very large. A negative number means AFTER is LOWER "
+            "than BEFORE.",
+        ),
+        (
+            "How likely is this from chance? (p)",
+            "Mann-Whitney U two-sided p-value. The probability of seeing a difference at "
+            "least this big purely by random fluctuation if BEFORE and AFTER actually had "
+            "the same underlying rate. Smaller = less likely to be noise alone. No "
+            "significance threshold is applied — this is descriptive, not a hypothesis test.",
+        ),
+        (
+            "Another change inside window?",
+            "\"pre\", \"post\", or both: another regimen change falls inside this window, "
+            "so the comparison is contaminated and the effect attributed to THIS change "
+            "may partly reflect the other one. Treat with caution.",
+        ),
+    ]
+    table = doc.add_table(rows=len(rows), cols=2)
+    table.autofit = False
+    for i, (term, definition) in enumerate(rows):
+        cells = table.rows[i].cells
+        cells[0].width = Inches(2.0)
+        cells[1].width = Inches(4.5)
+        _set_cell_text(cells[0], term, bold=True)
+        _set_cell_text(cells[1], definition)
 
 
 def _fmt_mean_ci(ci) -> str:
@@ -308,6 +427,48 @@ def _fmt_mean_ci(ci) -> str:
     if ci.low == ci.high == ci.mean:
         return f"{ci.mean:.2f}"
     return f"{ci.mean:.2f} [{ci.low:.2f}, {ci.high:.2f}]"
+
+
+def _fmt_hedges(g: float | None) -> str:
+    if g is None:
+        return "n/a"
+    mag = abs(g)
+    if mag < 0.2:
+        label = "trivial"
+    elif mag < 0.5:
+        label = "small"
+    elif mag < 0.8:
+        label = "medium"
+    elif mag < 1.2:
+        label = "large"
+    else:
+        label = "very large"
+    return f"{g:+.2f} ({label})"
+
+
+def _fmt_pvalue(p: float | None) -> str:
+    if p is None:
+        return "n/a"
+    if p < 0.001:
+        plain = "very unlikely to be noise alone"
+    elif p < 0.01:
+        plain = "unlikely to be noise alone"
+    elif p < 0.05:
+        plain = "somewhat unlikely to be noise"
+    elif p < 0.10:
+        plain = "could be noise"
+    else:
+        plain = "consistent with noise"
+    return f"{p:.4f} — {plain}"
+
+
+def _fmt_overlap(pre: bool, post: bool) -> str:
+    parts = []
+    if pre:
+        parts.append("pre")
+    if post:
+        parts.append("post")
+    return ", ".join(parts) if parts else "no"
 
 
 # --------------------------------------------------------------------------- #
@@ -354,44 +515,12 @@ def _add_section_7_flags(doc: DocxDocument, inputs: ReportInputs) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Section 8: Notable days                                                     #
+# Section 8: Open questions                                                   #
 # --------------------------------------------------------------------------- #
 
 
-def _add_section_8_notable(doc: DocxDocument, inputs: ReportInputs) -> None:
-    _add_section_heading(doc, "8. Notable days — > 2 SD above trailing 28-day mean")
-    log = inputs.log
-    end = log.latest_date
-    pd = __import__("pandas")
-    start = end - pd.Timedelta(days=inputs.lookback_days - 1)
-    notable = notable_days(log.daily)
-    in_window = notable.loc[(notable.index >= start) & (notable.index <= end)]
-
-    if in_window.empty:
-        doc.add_paragraph(f"No days in the last {inputs.lookback_days} days exceeded 2 SD above "
-                          "the trailing 28-day mean.")
-        return
-
-    headers = ["Date", "Count", "Trailing 28d mean", "Trailing 28d SD", "Z-score"]
-    table = doc.add_table(rows=1 + len(in_window), cols=len(headers))
-    for j, h in enumerate(headers):
-        _set_cell_text(table.rows[0].cells[j], h, bold=True)
-    for i, (idx, row) in enumerate(in_window.iterrows()):
-        cells = table.rows[i + 1].cells
-        _set_cell_text(cells[0], idx.date().isoformat())
-        _set_cell_text(cells[1], str(int(row["count"])))
-        _set_cell_text(cells[2], f"{row['trailing_mean']:.2f}")
-        _set_cell_text(cells[3], f"{row['trailing_std']:.2f}")
-        _set_cell_text(cells[4], f"{row['z_score']:+.2f}")
-
-
-# --------------------------------------------------------------------------- #
-# Section 9: Open questions                                                   #
-# --------------------------------------------------------------------------- #
-
-
-def _add_section_9_questions(doc: DocxDocument) -> None:
-    _add_section_heading(doc, "9. Open clinical questions")
+def _add_section_8_questions(doc: DocxDocument) -> None:
+    _add_section_heading(doc, "8. Open clinical questions")
     para = doc.add_paragraph()
     r = para.add_run("(Add questions here before the visit.)")
     r.italic = True
@@ -401,12 +530,12 @@ def _add_section_9_questions(doc: DocxDocument) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Section 10: Appendix                                                        #
+# Section 9: Appendix                                                         #
 # --------------------------------------------------------------------------- #
 
 
-def _add_section_10_appendix(doc: DocxDocument, inputs: ReportInputs) -> None:
-    _add_section_heading(doc, f"10. Appendix — raw daily counts, last {APPENDIX_DAYS} days")
+def _add_section_9_appendix(doc: DocxDocument, inputs: ReportInputs) -> None:
+    _add_section_heading(doc, f"9. Appendix — raw daily counts, last {APPENDIX_DAYS} days")
     pd = __import__("pandas")
     daily = inputs.log.daily
     end = inputs.log.latest_date

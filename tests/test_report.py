@@ -111,17 +111,56 @@ def test_report_section_headings_present(built_report: Path) -> None:
     body_text = "\n".join(p.text for p in doc.paragraphs)
     for heading in [
         "1. Patient & current regimen",
-        "2. Daily seizure counts",
+        "2. Weekly seizure totals & medication-change timeline",
         "3. 14-day rolling average",
-        "4. Time-of-day heatmap",
-        "5. Pre / post statistics",
+        "4. Seizures by hour of day",
+        "5. Pre / post comparison",
         "6. Seizure type distribution",
         "7. Flag summary",
-        "8. Notable days",
-        "9. Open clinical questions",
-        "10. Appendix",
+        "8. Open clinical questions",
+        "9. Appendix",
     ]:
         assert heading in body_text, f"Missing heading: {heading}"
+
+
+def test_report_does_not_have_notable_days_section(built_report: Path) -> None:
+    doc = Document(str(built_report))
+    body_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Notable days" not in body_text
+
+
+def test_report_med_change_table_present(built_report: Path) -> None:
+    """Section 2's horizontal med-change timeline table."""
+    doc = Document(str(built_report))
+    med_tables = [
+        t for t in doc.tables
+        if t.rows[0].cells[0].text.strip() == "Date"
+        and t.rows[0].cells[1].text.strip() == "Change"
+        and "regimen" in t.rows[0].cells[2].text.lower()
+    ]
+    assert len(med_tables) == 1
+
+
+def test_report_reading_key_present(built_report: Path) -> None:
+    """Section 5's plain-English glossary."""
+    doc = Document(str(built_report))
+    body_text = "\n".join(p.text for p in doc.paragraphs)
+    # Glossary intro line
+    assert "How to read this table" in body_text
+    # Magnitude labels in Hedges' g should appear in at least one cell.
+    table_text = " ".join(
+        cell.text for t in doc.tables for row in t.rows for cell in row.cells
+    )
+    assert any(label in table_text for label in ("small", "medium", "large", "very large", "trivial"))
+
+
+def test_report_pvalue_has_plain_english_suffix(built_report: Path) -> None:
+    doc = Document(str(built_report))
+    table_text = " ".join(
+        cell.text for t in doc.tables for row in t.rows for cell in row.cells
+    )
+    # _fmt_pvalue always appends "noise"-keyworded suffix when p is not None
+    assert "noise" in table_text.lower()
 
 
 def test_report_current_regimen_renders(built_report: Path) -> None:
@@ -166,12 +205,24 @@ def test_report_flag_table_present(built_report: Path) -> None:
 
 
 def test_report_no_causal_language(built_report: Path) -> None:
-    """Document must not contain phrases that imply causation per CLAUDE.md."""
+    """Document must not contain phrases that ASSERT causation per CLAUDE.md.
+
+    Disclaimer language (e.g. "not what caused it") is fine and important — we ban
+    affirmative causal claims, not the word "caused" in any context.
+    """
     doc = Document(str(built_report))
     all_text = " ".join(p.text for p in doc.paragraphs).lower()
     all_text += " " + " ".join(
         cell.text for t in doc.tables for row in t.rows for cell in row.cells
     ).lower()
-    banned = ["the drug worked", "responded well", "reduced seizures", "caused"]
-    for phrase in banned:
-        assert phrase not in all_text, f"Forbidden phrase in report: {phrase!r}"
+    banned_assertions = [
+        "the drug worked",
+        "responded well",
+        "reduced seizures",
+        "the change caused",
+        "the drug caused",
+        "due to the change",
+        "effective treatment",
+    ]
+    for phrase in banned_assertions:
+        assert phrase not in all_text, f"Forbidden causal phrase in report: {phrase!r}"

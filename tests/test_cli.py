@@ -64,7 +64,7 @@ def test_visit_prep_end_to_end(sample_log_path: Path, tmp_path: Path) -> None:
     assert zipfile.is_zipfile(docs[0])
     charts_dirs = list((out / "charts").iterdir())
     assert len(charts_dirs) == 1
-    expected_pngs = {"daily_totals.png", "rolling_avg.png", "tod_heatmap.png", "type_distribution.png"}
+    expected_pngs = {"weekly_trend.png", "rolling_avg.png", "hour_distribution.png", "type_distribution.png"}
     assert {p.name for p in charts_dirs[0].iterdir()} == expected_pngs
 
 

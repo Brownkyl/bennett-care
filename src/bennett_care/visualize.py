@@ -1,18 +1,18 @@
 """Matplotlib charts for the pre-visit summary report.
 
 Phase 1 charts:
-  * daily_totals   — bar chart of daily seizure counts in the lookback window,
-                     with vertical lines at real med changes labeled
-                     ``date: delta`` (auto-staggered when close together).
-  * rolling_avg    — 14-day rolling mean of daily counts over the wider window.
-  * tod_heatmap    — hour-of-day × day-of-week heatmap (viridis), from clusters
-                     in the lookback window.
-  * type_dist      — seizure-type pie of typed clusters in the window, captioned
-                     with coverage ("X of Y typed").
+  * weekly_trend       — weekly (ISO-week sum) seizure totals in the lookback
+                         window, with a dotted median-week reference line.
+                         Med changes are NOT annotated on this chart; the
+                         report places a horizontal med-change table beneath it.
+  * rolling_avg        — 14-day rolling mean of daily counts over the wider window.
+  * hour_distribution  — 24-bar chart of seizures by hour of day across the
+                         lookback window (no day-of-week dimension).
+  * type_dist          — seizure-type pie of typed clusters in the window,
+                         captioned with coverage ("X of Y typed").
 
 Conventions (per CLAUDE.md):
   * 150 DPI PNGs, fixed dimensions.
-  * Viridis colormap on the heatmap (perceptually uniform, colorblind-safe).
   * Charts saved to the directory the caller provides (gitignored at the project
     level). Files are not deleted after rendering; the caller decides retention.
   * No causal annotations on any chart — labels are factual.
@@ -22,33 +22,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .ingest import MedChange, SeizureLog
-from .stats import format_regimen_delta, real_changes_with_prev
+from .ingest import SeizureLog
 
 CHART_DPI: int = 150
-DAILY_FIGSIZE: tuple[float, float] = (10.0, 4.5)
+WEEKLY_FIGSIZE: tuple[float, float] = (10.0, 4.0)
 ROLLING_FIGSIZE: tuple[float, float] = (10.0, 4.0)
-HEATMAP_FIGSIZE: tuple[float, float] = (8.0, 5.0)
+HOUR_FIGSIZE: tuple[float, float] = (10.0, 4.0)
 PIE_FIGSIZE: tuple[float, float] = (6.0, 5.0)
-HEATMAP_CMAP: str = "viridis"
-
-_DAY_NAMES: tuple[str, ...] = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 @dataclass(frozen=True)
 class ChartPaths:
     """Paths to the four Phase 1 charts. All four are always populated (some may render an empty-state image)."""
 
-    daily_totals: Path
+    weekly_trend: Path
     rolling_avg: Path
-    tod_heatmap: Path
+    hour_distribution: Path
     type_distribution: Path
 
 
@@ -63,11 +58,11 @@ def render_all_charts(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     with plt.rc_context(_rc_overrides()):
-        daily = _render_daily_totals(log, out, lookback_days)
+        weekly = _render_weekly_trend(log, out, lookback_days)
         rolling = _render_rolling_avg(log, out, rolling_lookback_days)
-        heatmap = _render_tod_heatmap(log, out, lookback_days)
+        hour = _render_hour_distribution(log, out, lookback_days)
         types = _render_type_distribution(log, out, lookback_days)
-    return ChartPaths(daily, rolling, heatmap, types)
+    return ChartPaths(weekly, rolling, hour, types)
 
 
 def _rc_overrides() -> dict:
@@ -84,98 +79,51 @@ def _rc_overrides() -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Daily totals                                                                #
+# Weekly trend                                                                #
 # --------------------------------------------------------------------------- #
 
 
-def _render_daily_totals(log: SeizureLog, out: Path, lookback: int) -> Path:
+def _render_weekly_trend(log: SeizureLog, out: Path, lookback: int) -> Path:
+    """Weekly (ISO-week sum) seizure totals across the lookback window.
+
+    Daily noise is intentionally smoothed away; the report's medication-change
+    table next to this chart provides the per-event context, so no vertical
+    lines are drawn here.
+    """
     end = log.latest_date
     start = end - pd.Timedelta(days=lookback - 1)
     window = log.daily.loc[(log.daily.index >= start) & (log.daily.index <= end)]
 
-    fig, ax = plt.subplots(figsize=DAILY_FIGSIZE)
+    fig, ax = plt.subplots(figsize=WEEKLY_FIGSIZE)
     if not window.empty:
-        ax.bar(window.index, window["count"], width=0.9, color="#5a8fbb", edgecolor="none")
-        ymax = float(window["count"].max())
-    else:
-        ymax = 1.0
-
-    changes_in_window = _changes_in_window(log, start, end)
-    if changes_in_window:
-        _draw_change_lines(ax, changes_in_window, ymax)
-
-    # Title on the figure (not the axes) so it sits above the upward-reading
-    # med-change labels rather than colliding with them.
-    fig.suptitle(f"Daily seizure count, {start.date()} – {end.date()}", y=0.99)
-    ax.set_ylabel("Seizures")
-    ax.set_xlim(start - pd.Timedelta(days=1), end + pd.Timedelta(days=1))
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=10))
+        weekly = window["count"].resample("W-SUN").sum()
+        ax.bar(weekly.index, weekly.values, width=5.5, color="#5a8fbb", edgecolor="none")
+        median_val = float(weekly.median())
+        ax.axhline(median_val, color="#7d7d7d", linestyle=":", linewidth=1, alpha=0.8)
+        ax.text(
+            weekly.index[0],
+            median_val,
+            f" median: {median_val:.0f}/wk",
+            va="bottom",
+            ha="left",
+            fontsize=8,
+            color="#5d5d5d",
+        )
+        for x, y in zip(weekly.index, weekly.values):
+            ax.text(x, y + max(weekly.values) * 0.015, f"{int(y)}",
+                    ha="center", va="bottom", fontsize=8, color="#333")
+    ax.set_title(f"Weekly seizure totals, {start.date()} – {end.date()}")
+    ax.set_ylabel("Seizures per week")
+    ax.set_xlabel("Week ending")
+    ax.xaxis.set_major_locator(mdates.WeekdayLocator(byweekday=mdates.SU, interval=2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
     fig.autofmt_xdate()
-    fig.subplots_adjust(top=0.72, bottom=0.18)
+    fig.tight_layout()
 
-    path = out / "daily_totals.png"
+    path = out / "weekly_trend.png"
     fig.savefig(path)
     plt.close(fig)
     return path
-
-
-def _changes_in_window(
-    log: SeizureLog, start: pd.Timestamp, end: pd.Timestamp
-) -> list[tuple[MedChange, MedChange | None]]:
-    pairs = real_changes_with_prev(log)
-    return [(c, p) for c, p in pairs if start <= c.date <= end]
-
-
-def _draw_change_lines(
-    ax: plt.Axes,
-    changes: list[tuple[MedChange, MedChange | None]],
-    bar_ymax: float,
-) -> None:
-    """Draw vertical lines + vertical text labels for each med change.
-
-    Vertical labels read bottom-to-top, occupying minimal horizontal width
-    so they don't collide when changes are close in time. Stagger levels add
-    a small horizontal nudge so adjacent labels remain distinguishable.
-    """
-    if bar_ymax <= 0:
-        bar_ymax = 1.0
-    ax.set_ylim(0, bar_ymax * 1.05)
-    label_y = bar_ymax * 1.08  # just above bars, in figure-margin space
-    levels = _stagger_levels([c.date for c, _ in changes], min_gap_days=5)
-    label_color = "#b03a2e"
-    for (change, prev), level in zip(changes, levels):
-        ax.axvline(change.date, color=label_color, linestyle="--", linewidth=1, alpha=0.7)
-        delta = format_regimen_delta(prev.regimen if prev else None, change.regimen)
-        label = f"{change.date.strftime('%-m/%-d')}: {delta}"
-        x_nudge = pd.Timedelta(days=level)  # small horizontal offset for tight clusters
-        ax.text(
-            change.date + x_nudge,
-            label_y,
-            label,
-            rotation=90,
-            fontsize=7,
-            ha="center",
-            va="bottom",
-            color=label_color,
-            clip_on=False,
-        )
-
-
-def _stagger_levels(dates: Iterable[pd.Timestamp], min_gap_days: int) -> list[int]:
-    """Assign each date a non-negative stagger level so neighbors don't collide."""
-    levels: list[int] = []
-    last_at_level: dict[int, pd.Timestamp] = {}
-    for d in dates:
-        for level in range(20):
-            last = last_at_level.get(level)
-            if last is None or (d - last).days >= min_gap_days:
-                levels.append(level)
-                last_at_level[level] = d
-                break
-        else:
-            levels.append(0)
-    return levels
 
 
 # --------------------------------------------------------------------------- #
@@ -208,46 +156,56 @@ def _render_rolling_avg(log: SeizureLog, out: Path, lookback: int) -> Path:
 
 
 # --------------------------------------------------------------------------- #
-# Time-of-day heatmap                                                         #
+# Hour-of-day distribution                                                    #
 # --------------------------------------------------------------------------- #
 
 
-def _render_tod_heatmap(log: SeizureLog, out: Path, lookback: int) -> Path:
+def _render_hour_distribution(log: SeizureLog, out: Path, lookback: int) -> Path:
+    """Total seizure count per hour of day across the lookback window.
+
+    Day-of-week dimension is deliberately collapsed away — the clinical signal
+    is the time-of-day pattern, not weekday variation.
+    """
     end = log.latest_date
     start = end - pd.Timedelta(days=lookback - 1)
-
     clusters = log.clusters
     in_window = clusters[
         (clusters["Date"] >= start)
         & (clusters["Date"] <= end)
         & clusters["hour"].notna()
-    ].copy()
+    ]
 
-    fig, ax = plt.subplots(figsize=HEATMAP_FIGSIZE)
+    fig, ax = plt.subplots(figsize=HOUR_FIGSIZE)
     if in_window.empty:
         ax.text(0.5, 0.5, "No clusters with parseable time in window",
                 ha="center", va="center", transform=ax.transAxes)
         ax.set_axis_off()
     else:
-        in_window["dow"] = in_window["Date"].dt.dayofweek
-        in_window["hour_int"] = in_window["hour"].astype(int)
-        pivot = (
-            in_window.groupby(["dow", "hour_int"])["Seizure Count"]
+        by_hour = (
+            in_window.assign(hour_int=in_window["hour"].astype(int))
+            .groupby("hour_int")["Seizure Count"]
             .sum()
-            .unstack(fill_value=0)
-            .reindex(index=range(7), columns=range(24), fill_value=0)
+            .reindex(range(24), fill_value=0)
         )
-        im = ax.imshow(pivot.values, cmap=HEATMAP_CMAP, aspect="auto")
-        ax.set_xticks(range(0, 24, 2))
-        ax.set_xticklabels([f"{h:02d}" for h in range(0, 24, 2)], fontsize=8)
-        ax.set_yticks(range(7))
-        ax.set_yticklabels(_DAY_NAMES)
-        ax.set_xlabel("Hour of day")
-        ax.set_title(f"Seizures by hour × day-of-week, {start.date()} – {end.date()}")
-        cbar = fig.colorbar(im, ax=ax, shrink=0.85)
-        cbar.set_label("Total seizures")
+        ax.bar(by_hour.index, by_hour.values, color="#5a8fbb", edgecolor="none", width=0.85)
+        peak_hour = int(by_hour.idxmax())
+        peak_val = int(by_hour.max())
+        ax.bar([peak_hour], [peak_val], color="#b03a2e", edgecolor="none", width=0.85)
+        ax.annotate(
+            f"peak: {peak_hour:02d}:00 ({peak_val})",
+            xy=(peak_hour, peak_val),
+            xytext=(peak_hour, peak_val + max(by_hour.values) * 0.06),
+            fontsize=9, ha="center", color="#b03a2e",
+        )
+        ax.set_xticks(range(0, 24))
+        ax.set_xticklabels([f"{h:02d}" for h in range(0, 24)], fontsize=8)
+        ax.set_xlim(-0.6, 23.6)
+        ax.set_xlabel("Hour of day (24-hour clock)")
+        ax.set_ylabel("Total seizures")
+    ax.set_title(f"Seizures by hour of day, {start.date()} – {end.date()}")
+    fig.tight_layout()
 
-    path = out / "tod_heatmap.png"
+    path = out / "hour_distribution.png"
     fig.savefig(path)
     plt.close(fig)
     return path

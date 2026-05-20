@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from bennett_care.ingest import Dose, MedChange, SeizureLog
-from bennett_care.visualize import ChartPaths, render_all_charts, _stagger_levels
+from bennett_care.visualize import ChartPaths, render_all_charts
 
 
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
@@ -91,16 +91,16 @@ def test_render_all_charts_writes_four_pngs(tmp_path: Path) -> None:
     out = tmp_path / "charts"
     result = render_all_charts(log, output_dir=out, lookback_days=90, rolling_lookback_days=180)
     assert isinstance(result, ChartPaths)
-    _assert_png(result.daily_totals)
+    _assert_png(result.weekly_trend)
     _assert_png(result.rolling_avg)
-    _assert_png(result.tod_heatmap)
+    _assert_png(result.hour_distribution)
     _assert_png(result.type_distribution)
 
 
 def test_render_handles_no_med_changes(tmp_path: Path) -> None:
     log = _make_log(med_changes_at=[])
     result = render_all_charts(log, output_dir=tmp_path)
-    _assert_png(result.daily_totals)
+    _assert_png(result.weekly_trend)
 
 
 def test_render_handles_no_typed_clusters(tmp_path: Path) -> None:
@@ -110,10 +110,11 @@ def test_render_handles_no_typed_clusters(tmp_path: Path) -> None:
 
 
 def test_render_handles_empty_cluster_window(tmp_path: Path) -> None:
-    # Clusters all happen long before the lookback window — heatmap should render an empty-state image.
+    # Clusters all happen long before the lookback window — the hour chart
+    # should render an empty-state image, not error.
     log = _make_log(cluster_dates=[0, 1, 2], days=200)
     result = render_all_charts(log, output_dir=tmp_path, lookback_days=30)
-    _assert_png(result.tod_heatmap)
+    _assert_png(result.hour_distribution)
 
 
 def test_render_creates_output_dir(tmp_path: Path) -> None:
@@ -123,24 +124,8 @@ def test_render_creates_output_dir(tmp_path: Path) -> None:
     assert nested.is_dir()
 
 
-# --------------------------------------------------------------------------- #
-# Stagger algorithm                                                           #
-# --------------------------------------------------------------------------- #
-
-
-def test_stagger_levels_no_collisions_when_spaced() -> None:
-    dates = pd.to_datetime(["2026-01-01", "2026-01-20", "2026-02-10"])
-    assert _stagger_levels(list(dates), min_gap_days=5) == [0, 0, 0]
-
-
-def test_stagger_levels_bumps_close_pairs() -> None:
-    # Two changes 2 days apart: second must use a higher level.
-    dates = pd.to_datetime(["2026-01-01", "2026-01-03"])
-    levels = _stagger_levels(list(dates), min_gap_days=5)
-    assert levels[0] == 0
-    assert levels[1] == 1
-
-
-def test_stagger_levels_stacks_three_close() -> None:
-    dates = pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"])
-    assert _stagger_levels(list(dates), min_gap_days=5) == [0, 1, 2]
+def test_weekly_trend_filename_is_weekly_trend(tmp_path: Path) -> None:
+    log = _make_log()
+    result = render_all_charts(log, output_dir=tmp_path)
+    assert result.weekly_trend.name == "weekly_trend.png"
+    assert result.hour_distribution.name == "hour_distribution.png"
