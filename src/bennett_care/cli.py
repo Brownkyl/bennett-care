@@ -14,7 +14,7 @@ import click
 import pandas as pd
 
 from .ingest import load_log
-from .report import ReportInputs, build_report
+from .report import ReportInputs, build_report, convert_to_pdf
 from .stats import analyze_recent_changes
 from .visualize import render_all_charts
 
@@ -54,12 +54,20 @@ def cli() -> None:
     type=click.Path(file_okay=False),
     help="Directory for the generated .docx and the chart subdir.",
 )
+@click.option(
+    "--pdf",
+    is_flag=True,
+    default=False,
+    help="Also write a PDF next to the .docx via LibreOffice headless "
+         "(requires `soffice` on PATH).",
+)
 def visit_prep(
     log_path: str,
     visit_date: str,
     lookback: int,
     rolling_lookback: int,
     output_dir: str,
+    pdf: bool,
 ) -> None:
     """Generate the pre-visit summary .docx for a clinic visit."""
     try:
@@ -100,8 +108,18 @@ def visit_prep(
     )
     build_report(inputs, output_path=docx_path)
 
+    pdf_path: Path | None = None
+    if pdf:
+        click.echo("Converting to PDF...")
+        try:
+            pdf_path = convert_to_pdf(docx_path)
+        except (FileNotFoundError, RuntimeError) as e:
+            raise click.ClickException(str(e)) from None
+
     click.echo("")
     click.echo(f"Document: {docx_path}")
+    if pdf_path is not None:
+        click.echo(f"PDF:      {pdf_path}")
     click.echo(f"Charts:   {charts_dir}")
 
 

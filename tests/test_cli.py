@@ -86,6 +86,77 @@ def test_visit_prep_rejects_bad_date(sample_log_path: Path, tmp_path: Path) -> N
     assert "YYYY-MM-DD" in result.output
 
 
+def test_visit_prep_pdf_flag_invokes_soffice(
+    sample_log_path: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """With --pdf, soffice is invoked and the PDF path appears in CLI output."""
+    out = tmp_path / "out"
+    captured: dict = {}
+
+    def fake_which(name: str) -> str | None:
+        return "/usr/local/bin/soffice" if name == "soffice" else None
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        docx = Path(cmd[-1])
+        docx.with_suffix(".pdf").write_bytes(b"%PDF-1.4\n%mock\n")
+
+        class _Result:
+            returncode = 0
+            stderr = ""
+
+        return _Result()
+
+    monkeypatch.setattr("bennett_care.report.shutil.which", fake_which)
+    monkeypatch.setattr("bennett_care.report.subprocess.run", fake_run)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "visit-prep",
+            "--log", str(sample_log_path),
+            "--visit-date", "2026-08-04",
+            "--lookback", "30",
+            "--rolling-lookback", "30",
+            "--output", str(out),
+            "--pdf",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    pdfs = list(out.glob("bennett_visit_2026-08-04_*.pdf"))
+    assert len(pdfs) == 1
+    assert "PDF:" in result.output
+    assert captured["cmd"][0] == "/usr/local/bin/soffice"
+    assert "--headless" in captured["cmd"]
+    assert captured["cmd"][captured["cmd"].index("--convert-to") + 1] == "pdf"
+
+
+def test_visit_prep_pdf_flag_errors_when_soffice_missing(
+    sample_log_path: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Missing `soffice` yields a clear error mentioning LibreOffice."""
+    out = tmp_path / "out"
+    monkeypatch.setattr("bennett_care.report.shutil.which", lambda name: None)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "visit-prep",
+            "--log", str(sample_log_path),
+            "--visit-date", "2026-08-04",
+            "--lookback", "30",
+            "--rolling-lookback", "30",
+            "--output", str(out),
+            "--pdf",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "soffice" in result.output.lower()
+    assert "libreoffice" in result.output.lower()
+
+
 def test_inspect_mismatches_no_mismatches(tmp_path: Path) -> None:
     """When the log has no mismatches, the command reports cleanly with no CSV."""
     import pandas as pd

@@ -19,6 +19,8 @@ from this document during the clinic visit.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -96,6 +98,45 @@ def build_report(inputs: ReportInputs, *, output_path: str | Path) -> Path:
 
     doc.save(output_path)
     return output_path
+
+
+def convert_to_pdf(docx_path: str | Path, *, timeout: int = 120) -> Path:
+    """Convert ``docx_path`` to a sibling .pdf via LibreOffice headless.
+
+    Runs entirely locally — `soffice --headless` does not phone home. Raises
+    FileNotFoundError if `soffice` is not on PATH, or RuntimeError if the
+    conversion completes but no PDF is produced.
+    """
+    docx_path = Path(docx_path)
+    soffice = shutil.which("soffice")
+    if soffice is None:
+        raise FileNotFoundError(
+            "LibreOffice `soffice` not found on PATH. Install LibreOffice "
+            "(macOS: `brew install --cask libreoffice`) and ensure `soffice` "
+            "is on PATH, e.g. "
+            "`ln -s /Applications/LibreOffice.app/Contents/MacOS/soffice /usr/local/bin/soffice`."
+        )
+    result = subprocess.run(
+        [
+            soffice,
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(docx_path.parent),
+            str(docx_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    pdf_path = docx_path.with_suffix(".pdf")
+    if result.returncode != 0 or not pdf_path.exists():
+        raise RuntimeError(
+            f"LibreOffice failed to convert {docx_path.name} "
+            f"(exit {result.returncode}). stderr: {result.stderr.strip()}"
+        )
+    return pdf_path
 
 
 # --------------------------------------------------------------------------- #
