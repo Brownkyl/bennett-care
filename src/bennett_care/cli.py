@@ -3,6 +3,7 @@
 Subcommands:
     visit-prep          Generate the pre-visit summary .docx for clinic.
     inspect-mismatches  Dump worst Cluster Detail vs. Daily Total mismatches.
+    dump-notes          Dump verbatim Notes/Diet cells in a lookback window.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import click
 import pandas as pd
 
 from .ingest import load_log
+from .notes import extract_notes
 from .report import ReportInputs, build_report, convert_to_pdf
 from .stats import analyze_recent_changes, current_baseline
 from .visualize import render_all_charts
@@ -185,3 +187,55 @@ def inspect_mismatches(log_path: str, top: int, output_dir: str) -> None:
         f"Worst |diff|: {int(top_n['abs_diff'].max())} seizures.\n"
         f"Wrote top {len(top_n)} rows to: {out_path}"
     )
+
+
+@cli.command("dump-notes")
+@click.option(
+    "--log",
+    "log_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to the seizure log .xlsx.",
+)
+@click.option(
+    "--lookback",
+    default=90,
+    type=int,
+    show_default=True,
+    help="Lookback days, anchored at the latest date in the log.",
+)
+@click.option(
+    "--output",
+    "output_dir",
+    default="output",
+    show_default=True,
+    type=click.Path(file_okay=False),
+    help="Directory to write the CSV into. Created if it doesn't exist.",
+)
+def dump_notes(log_path: str, lookback: int, output_dir: str) -> None:
+    """Dump verbatim Notes/Diet cells in the lookback window to a local CSV.
+
+    Includes every non-blank cell from ``All Data.Notes``, ``All Data.Diet``,
+    and ``Cluster Detail.Notes`` on logged days only. No keyword filtering,
+    no paraphrase — open the CSV in Excel and skim.
+    """
+    notes_df = extract_notes(log_path, lookback_days=lookback)
+    log = load_log(log_path)
+    end = log.latest_date
+    start = end - pd.Timedelta(days=lookback - 1)
+
+    click.echo(
+        f"Window: {start.date().isoformat()} → {end.date().isoformat()} "
+        f"({lookback} days)"
+    )
+    click.echo(f"Notes extracted: {len(notes_df)} entries")
+    if not notes_df.empty:
+        for source, count in notes_df["Source"].value_counts().sort_index().items():
+            click.echo(f"  {source}: {count}")
+
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    out_path = out_dir / f"bennett_notes_{end.date().isoformat()}_{stamp}.csv"
+    notes_df.to_csv(out_path, index=False)
+    click.echo(f"Wrote: {out_path}")

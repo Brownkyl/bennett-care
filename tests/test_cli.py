@@ -157,6 +157,31 @@ def test_visit_prep_pdf_flag_errors_when_soffice_missing(
     assert "libreoffice" in result.output.lower()
 
 
+def test_dump_notes_writes_csv(notes_log_path: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "dump-notes",
+            "--log",
+            str(notes_log_path),
+            "--lookback",
+            "7",
+            "--output",
+            str(out),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    files = list(out.glob("bennett_notes_2026-01-10_*.csv"))
+    assert len(files) == 1
+    with files[0].open() as fh:
+        rows = list(csv.DictReader(fh))
+    assert len(rows) == 6
+    assert set(rows[0].keys()) == {"Date", "Source", "Notes"}
+    assert "Notes extracted: 6 entries" in result.output
+
+
 def test_inspect_mismatches_no_mismatches(tmp_path: Path) -> None:
     """When the log has no mismatches, the command reports cleanly with no CSV."""
     import pandas as pd
