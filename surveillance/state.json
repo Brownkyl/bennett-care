@@ -1,0 +1,53 @@
+{
+  "seen_pubmed": [
+    "42247076",
+    "42213102",
+    "42024961",
+    "42012897",
+    "41965493",
+    "41324386",
+    "41819772",
+    "41848774",
+    "42237860",
+    "40808385",
+    "41225302",
+    "42019159"
+  ],
+  "seen_preprints": [
+    "10.64898/2026.05.24.26353505",
+    "10.64898/2026.06.01.26354621",
+    "10.64898/2026.05.17.26353436",
+    "10.64898/2026.05.31.26354557"
+  ],
+  "trial_snapshots": {
+    "NCT07010471": {
+      "status": "RECRUITING",
+      "title": "A Clinical Trial for Participants With DEE to Assess Efficacy, Safety, Tolerability, and PK of Relutrigine"
+    },
+    "NCT05219617": {
+      "status": "RECRUITING",
+      "title": "Investigate Efficacy and Safety of Carisbamate as Adjunctive Treatment for Seizures Associated With LGS in Children and Adults"
+    },
+    "NCT05374824": {
+      "status": "RECRUITING",
+      "title": "Comparative Effectiveness of Palliative Surgery Versus Additional Anti-Seizure Medications for Lennox-Gastaut Syndrome"
+    },
+    "NCT06924086": {
+      "status": "RECRUITING",
+      "title": "The Children's Adaptive Deep Brain Stimulation for Epilepsy Trial"
+    },
+    "NCT06719141": {
+      "status": "RECRUITING",
+      "title": "A Study to Investigate LP352 in Children and Adults With Developmental and Epileptic Encephalopathies (DEE)"
+    },
+    "NCT05066217": {
+      "status": "RECRUITING",
+      "title": "An Efficacy and Safety Study of Clemizole HCl in Patients With Lennox-Gastaut Syndrome"
+    },
+    "NCT06401538": {
+      "status": "RECRUITING",
+      "title": "BMB-101 in Absence Epilepsy and DEE"
+    }
+  },
+  "last_run": "2026-06-05T19:23:13.220038+00:00"
+}
