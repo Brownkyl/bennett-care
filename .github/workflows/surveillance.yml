@@ -1,0 +1,49 @@
+name: Bennett Literature Surveillance
+
+on:
+  schedule:
+    # Every Friday at 9:00 AM Eastern (13:00 UTC)
+    - cron: "0 13 * * 5"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI (useful for testing)
+
+permissions:
+  contents: write   # needed to commit the updated state.json back to the repo
+
+jobs:
+  surveillance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install requests anthropic
+
+      - name: Run surveillance scan
+        env:
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_FROM:         ${{ secrets.GMAIL_FROM }}
+          GMAIL_TO:           ${{ secrets.GMAIL_TO }}
+          NCBI_API_KEY:       ${{ secrets.NCBI_API_KEY }}
+        run: python surveillance/run_surveillance.py
+
+      - name: Commit updated state file
+        run: |
+          git config user.name  "bennett-care-bot"
+          git config user.email "actions@github.com"
+          git add surveillance/state.json
+          # Only commit if the state file actually changed
+          git diff --staged --quiet || git commit -m "chore: update surveillance state [skip ci]"
+          git push
