@@ -64,15 +64,21 @@ PREPRINT_KEYWORDS = [
     "glut1", "cerebral folate", "perampanel",
 ]
 
-# Updated to May 2026 clinical state
+# Updated June 2026 clinical state
 BENNETT_CONTEXT = """
-Bennett is 3 years old (DOB Feb 7 2023), 15.9 kg, male.
-Diagnosis: EMAS (epilepsy with myoclonic-atonic seizures), possible evolution toward Lennox-Gastaut syndrome. Daily myoclonic-atonic seizures. Etiology unknown — genetics non-diagnostic (Invitae epilepsy panel + WES; TSC2 VUS paternally inherited, likely benign). Trio WGS under evaluation.
+Bennett is male, age 3 (DOB Feb 7 2023), 17.7 kg (per 5/4/2026 CHOA visit; up from 16.7 kg on 3/30/26), height 98.5 cm.
+Diagnosis: EMAS (epilepsy with myoclonic-atonic seizures / Doose), generalized, with consideration for evolution to Lennox-Gastaut syndrome. Seizure types: myoclonic-atonic head drops, 3-15 per day in clusters under 10 minutes, plus nocturnal events (mostly EEG signature, tracking for possible ictal arousals).
+Comorbidities: migraine, cognitive impairment.
+Etiology: likely genetic, currently unknown (Invitae epilepsy panel + WES non-diagnostic; TSC2 VUS, paternally inherited, likely benign; trio WGS under evaluation).
+EEG (Feb 16 2026): numerous atonic seizures with head drops; frequent multifocal spike/spike-and-wave; sleep-activated diffuse spike/polyspike and slow-wave bursts with overriding fast activity in runs of 3 to 9 sec (pattern consistent with LGS-evolution concern).
+Currently receiving PT, OT, and speech therapy; IEP in place through pre-K.
 
-FAILED therapies: prednisolone (initial benefit only), topiramate (19-day seizure freedom then escape), felbamate (dehydration), valproate/Depakote (FORMAL ALLERGY — hives; NEVER suggest again), ketogenic diet (MAD, 3:1 CKD, 1.5:1 CKD — all insufficient despite good ketosis; currently weaning).
+FAILED therapies: prednisolone (initial benefit only), topiramate (19-day seizure freedom then escape), felbamate (appetite suppression and dehydration), valproate/Depakote (FORMAL ALLERGY, hives, NEVER suggest again), ketogenic diet (MAD, 3:1 CKD, 1.5:1 CKD all insufficient despite strong ketosis; now fully DISCONTINUED, no longer on any ketogenic diet).
 
-CURRENT ASMs: Epidiolex (cannabidiol) titrating nocturnal dose; clobazam 4 mL/day BID; levetiracetam 2 mL TID.
-Also: levocarnitine, Cytra-K (potassium citrate).
+CURRENT ASMs:
+- Levetiracetam (Keppra) 100 mg/mL: 2 mL (200 mg) TID
+- Cannabidiol (Epidiolex) 100 mg/mL: 0.9 mL (90 mg) AM, 1.5 mL (150 mg) PM (nocturnal dose titrating up)
+- Clobazam (Onfi) 2.5 mg/mL: 1 mL AM, 4 mL PM
 Rescue: Valtoco (diazepam nasal), Klonopin ODT (clonazepam).
 
 NEXT STEPS (Dr. Ribeiro-Pinto, CHOA, May 2026):
@@ -80,16 +86,16 @@ NEXT STEPS (Dr. Ribeiro-Pinto, CHOA, May 2026):
 - Plan B: Add rufinamide (LGS-approved, targets drop attacks). Not yet started.
 - Plan C: VNS education / near-future neuromodulation planning.
 - Also on table: perampanel, fenfluramine.
+- Consider ongoing trial enrollment if seizures persist once stable.
 - Summer 2026: 48-hr EMU video-EEG admission + LP under sedation for CSF neurotransmitters (5-MTHF, cerebral folate deficiency, biogenic amines, pterins, GLUT1 deficiency screen via fasting glucose ratio).
 - August 4 2026: Next neurology follow-up.
 
-KEY PK NOTE: Epidiolex inhibits CYP2C19 — elevates clobazam NOR (active metabolite). Rufinamide also weakly inhibits CYP2C19. Flag any drug interaction data on this pathway.
+KEY PK NOTE: Epidiolex inhibits CYP2C19, elevating clobazam N-desmethyl (active metabolite). Rufinamide also weakly inhibits CYP2C19. Flag any drug interaction data on this pathway.
 
-SAFETY FLAG: Sodium channel blockers (carbamazepine, oxcarbazepine, lamotrigine, phenytoin) are documented to WORSEN drop attacks in EMAS/LGS — flag prominently if any study involves these in this phenotype.
+SAFETY FLAG: Sodium channel blockers (carbamazepine, oxcarbazepine, lamotrigine, phenytoin) are documented to WORSEN drop attacks in EMAS/LGS. Flag prominently if any study involves these in this phenotype.
 
-WORSENING SIGNAL: Levetiracetam has a published seizure-worsening signal in EMAS cohort (Pellacani/Guerrini, Brain Communications Dec 2025) — flag any confirmatory or contradictory data.
+WORSENING SIGNAL: Levetiracetam has a published seizure-worsening signal in EMAS (Pellacani et al., Brain Communications 2026, fcaf507; about 5% worsening, comparable to carbamazepine; the same paper reports older ASMs outperform newer ones in EMAS). Bennett is currently on levetiracetam, so flag any confirmatory or contradictory data at HIGH priority.
 """.strip()
-
 
 # ---------------------------------------------------------------------------
 # State management
@@ -308,13 +314,24 @@ def score_with_claude(papers: list[dict]) -> list[dict]:
         prompt = (
             f"Evaluate research papers for a specific pediatric epilepsy patient.\n\n"
             f"PATIENT:\n{BENNETT_CONTEXT}\n\n"
+            f"NON-PHARMACOLOGIC / SUPPORTIVE THERAPIES (evidence-backed only):\n"
+            f"Evaluate data on neuromodulation (VNS, and RNS/DBS where age-relevant) and on "
+            f"rehabilitative or developmental therapies in pediatric DEE: occupational therapy, "
+            f"physical therapy, speech-language therapy, feeding/swallowing therapy, and "
+            f"developmental or behavioral intervention. NOTE: ABA is autism-specific; include only "
+            f"if a study addresses behavioral therapy in DEE without requiring an autism diagnosis. "
+            f"For experimental cell-based therapies (stem cell, MSC, neural progenitor or interneuron "
+            f"grafts, e.g. NRTX-1001), score as research-only unless a controlled trial reports "
+            f"efficacy in generalized pediatric epilepsy; flag evidence level explicitly.\n\n"
             f"SCORING CRITERIA:\n"
-            f"HIGH = directly actionable: EMAS/Doose-specific data, rufinamide/fenfluramine/VNS "
+            f"HIGH = directly actionable: EMAS/Doose-specific data, rufinamide/fenfluramine/perampanel/VNS "
             f"efficacy or safety, active titration drugs, CFD/CSF/GLUT1 workup, CYP2C19 interactions, "
-            f"trial enrollment opportunity\n"
+            f"LEV worsening data, trial enrollment opportunity Bennett could access\n"
             f"MEDIUM = relevant context: LGS, Dravet, other DEE, related drug class, "
-            f"pediatric generalized epilepsy outcomes\n"
-            f"LOW = tangential: general epilepsy, adult-only studies, unrelated mechanism\n"
+            f"pediatric generalized epilepsy outcomes, evidence-backed OT/PT/speech/feeding/developmental "
+            f"therapy outcomes in DEE\n"
+            f"LOW = tangential: general epilepsy, adult-only studies, unrelated mechanism, "
+            f"low-quality or uncontrolled experimental therapy\n"
             f"SKIP = not applicable\n\n"
             f"PAPERS:\n{listing}\n\n"
             f"Return ONLY a JSON array with no markdown fences:\n"
