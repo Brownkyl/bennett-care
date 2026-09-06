@@ -1,6 +1,31 @@
 {
-  "seen_pubmed": [],
-  "seen_preprints": [],
+  "seen_pubmed": [
+    "42627450",
+    "42632015",
+    "42636610",
+    "42650175",
+    "42651828",
+    "42652962",
+    "42663529",
+    "42663574",
+    "42664727",
+    "42669795",
+    "42675017",
+    "42691789",
+    "42691883",
+    "42697048",
+    "42697776",
+    "42699961"
+  ],
+  "seen_preprints": [
+    "10.64898/2026.08.17.26360463",
+    "10.64898/2026.08.17.26360584",
+    "10.64898/2026.08.18.26360396",
+    "10.64898/2026.08.18.26360604",
+    "10.64898/2026.08.18.26360638",
+    "10.64898/2026.08.18.26360692",
+    "10.64898/2026.08.18.26360725"
+  ],
   "trial_snapshots": {
     "NCT07010471": {
       "status": "ACTIVE_NOT_RECRUITING",
@@ -19,7 +44,7 @@
       "title": "The Children's Adaptive Deep Brain Stimulation for Epilepsy Trial"
     },
     "NCT06719141": {
-      "status": "RECRUITING",
+      "status": "ACTIVE_NOT_RECRUITING",
       "title": "A Study to Investigate LP352 in Children and Adults With Developmental and Epileptic Encephalopathies (DEE)"
     },
     "NCT05066217": {
@@ -31,5 +56,14 @@
       "title": "BMB-101 in Absence Epilepsy and DEE"
     }
   },
-  "last_run": "2026-09-04T16:39:23.172121+00:00"
+  "last_run": "2026-09-06T16:40:33.931602+00:00",
+  "last_run_summary": {
+    "period": "August 21\u2013September 6, 2026",
+    "screened": 24,
+    "kept": 10,
+    "deferred": 0,
+    "trials": 1,
+    "fulltext": 1,
+    "unsupported": 0
+  }
 }
