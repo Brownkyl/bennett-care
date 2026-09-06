@@ -176,3 +176,27 @@ class TestDeidentification:
         """DOB drives eligibility math but must never appear in the API payload."""
         assert "2023-02-07" not in rs.PATIENT_CONTEXT
         assert rs.PATIENT_DOB == date(2023, 2, 7)
+
+
+class TestSubjectLine:
+    """The first live run shipped a subject with the period printed twice."""
+
+    def test_no_duplicate_period_when_headline_contains_it(self):
+        b = {"headline": "EMAS/LGS literature briefing: August 21 – September 6, 2026",
+             "period": "August 21–September 6, 2026"}
+        s = rs.build_subject(b, [])
+        assert s.count("2026") == 1
+        assert s == b["headline"]
+
+    def test_period_appended_when_headline_lacks_it(self):
+        s = rs.build_subject({"headline": "LGS treatment update",
+                              "period": "August 21–September 6, 2026"}, [])
+        assert s == "LGS treatment update — August 21–September 6, 2026"
+
+    def test_unverified_count_flagged(self):
+        s = rs.build_subject({"headline": "Update", "period": ""},
+                             [{"figure": "x"}, {"figure": "y"}])
+        assert s.endswith("[2 unverified figure(s)]")
+
+    def test_missing_period_is_tolerated(self):
+        assert rs.build_subject({"headline": "Update"}, []) == "Update"

@@ -319,12 +319,19 @@ def preprint_search(server: str) -> list[dict]:
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=SEARCH_LOOKBACK_DAYS)
     url = f"https://api.{server}.org/details/{server}/{start}/{today}/0/json"
-    try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
-        collection = r.json().get("collection", [])
-    except Exception as e:
-        print(f"[WARN] {server} fetch failed: {e}")
+    collection = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=45)
+            r.raise_for_status()
+            collection = r.json().get("collection", [])
+            break
+        except Exception as e:
+            print(f"[WARN] {server} fetch attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:
+                time.sleep(3 * (attempt + 1))
+    if collection is None:
+        print(f"[WARN] {server} unavailable this run — briefing will not cover it")
         return []
 
     label = "medRxiv" if server == "medrxiv" else "bioRxiv"
@@ -840,12 +847,18 @@ def synthesize_briefing(items: list[dict], trials: list[dict], fulltext: dict[st
     )
     for attempt in range(3):
         try:
-            resp = client.messages.create(
+            # Streamed: a dense fortnight overruns a 16k non-streaming cap and the JSON
+            # comes back truncated mid-string. Streaming allows the larger ceiling
+            # without risking an HTTP timeout.
+            with client.messages.stream(
                 model=CLAUDE_MODEL,
-                max_tokens=16000,
+                max_tokens=64000,
                 messages=[{"role": "user", "content": prompt}],
                 output_config={"format": {"type": "json_schema", "schema": BRIEFING_SCHEMA}},
-            )
+            ) as stream:
+                resp = stream.get_final_message()
+            if resp.stop_reason == "max_tokens":
+                raise ValueError("synthesis hit max_tokens — output truncated")
             text = next(b.text for b in resp.content if b.type == "text")
             briefing = json.loads(text)
             briefing["period"] = period
@@ -945,6 +958,24 @@ def _source_link(sid: str) -> str:
     label = _esc(sid)
     return (f'<a href="{url}" style="color:#1d4ed8;text-decoration:none">{label}</a>'
             if url else label)
+
+
+def build_subject(briefing: dict, unsupported: list[dict]) -> str:
+    """Subject line, avoiding the period appearing twice when the headline already has it."""
+    headline = (briefing.get("headline") or "Bennett Lit Briefing").strip()
+    period   = (briefing.get("period") or "").strip()
+    # Compare on digits so "August 21 - September 6, 2026" matches "August 21-September 6,
+    # 2026" — the model's dash and spacing vary run to run.
+    digits = lambda t: "".join(c for c in t if c.isdigit())
+    if period and digits(period) and digits(period) in digits(headline):
+        subject = headline
+    elif period:
+        subject = f"{headline} — {period}"
+    else:
+        subject = headline
+    if unsupported:
+        subject += f" [{len(unsupported)} unverified figure(s)]"
+    return subject
 
 
 def build_email_html(briefing: dict, scan_date: str, counts: dict,
@@ -1204,9 +1235,7 @@ def main() -> None:
               "trials": len(trial_updates), "fulltext": len(fulltext)}
     html = build_email_html(briefing, period_end.strftime("%B %d, %Y"), counts,
                             unsupported, trial_updates)
-    subject = f"{briefing.get('headline', 'Bennett Lit Briefing')} — {briefing.get('period','')}"
-    if unsupported:
-        subject += f" [{len(unsupported)} unverified figure(s)]"
+    subject = build_subject(briefing, unsupported)
     print(f"[STEP 8] Sending: {subject}")
     send_email(subject, html)
     print("[DONE]")
