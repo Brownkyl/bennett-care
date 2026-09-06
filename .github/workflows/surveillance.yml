@@ -2,10 +2,16 @@ name: Bennett Literature Surveillance
 
 on:
   schedule:
-    # Every Friday at 9:00 AM Eastern (13:00 UTC)
+    # Fires every Friday 13:00 UTC; the script gates to a ~biweekly briefing.
     - cron: "0 13 * * 5"
   workflow_dispatch:
-    # Allow manual trigger from GitHub Actions UI (useful for testing)
+    # Manual trigger from the Actions UI. Defaults to bypassing the cadence gate, so a
+    # hand-run always produces a briefing.
+    inputs:
+      force:
+        description: "Run even if the last briefing was recent"
+        type: boolean
+        default: true
 
 permissions:
   contents: write   # needed to commit the updated state.json back to the repo
@@ -13,7 +19,7 @@ permissions:
 jobs:
   surveillance:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -28,10 +34,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests anthropic
+          pip install 'requests>=2.31' 'anthropic>=1.3'
 
+      # The cron fires weekly; run_surveillance.py decides whether a briefing is
+      # actually due (~every 12 days). A weekly cron with an in-script gate keeps the
+      # cadence from drifting to a month whenever a run fails.
       - name: Run surveillance scan
         env:
+          FORCE_RUN:          ${{ inputs.force }}
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GMAIL_FROM:         ${{ secrets.GMAIL_FROM }}
